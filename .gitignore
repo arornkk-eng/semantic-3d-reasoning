@@ -1,0 +1,33 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Runtime data (user uploads, tasks, output)
+data/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Official ZipSplat source (clone separately)
+ZipSplat-main/
+
+# Claude Code config
+.claude/
+
+# Temp
+*.tmp
+*.log
