@@ -47,6 +47,13 @@ export default function App() {
     setActiveTab("tasks");
   }, []);
 
+  const handleTaskDeleted = useCallback((taskId: string) => {
+    const existing = loadHistory();
+    const filtered = existing.filter((e) => e.task_id !== taskId);
+    saveHistory(filtered);
+    setTaskIds(filtered.map((e) => e.task_id));
+  }, []);
+
   // 同步跨标签页的 localStorage 变更
   useEffect(() => {
     const onStorage = () => {
@@ -115,7 +122,7 @@ export default function App() {
             <h2 className="text-xl font-semibold text-gray-800 mb-4">
               重建任务
             </h2>
-            <TaskList taskIds={taskIds} />
+            <TaskList taskIds={taskIds} onDelete={handleTaskDeleted} />
           </section>
         )}
 

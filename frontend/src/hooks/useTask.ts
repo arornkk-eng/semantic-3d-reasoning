@@ -17,7 +17,7 @@ export function useTask(taskId: string | null) {
   const startTimeRef = useRef<number>(0);
 
   const isTerminal = (t: TaskMeta | null) =>
-    t?.status === "completed" || t?.status === "failed";
+    t?.status === "completed" || t?.status === "failed" || t?.status === "cancelled";
 
   const tick = useCallback(async () => {
     if (!taskId) return;

@@ -56,3 +56,27 @@ export function getResult(taskId: string): Promise<ResultResponse> {
 export function getDownloadUrl(taskId: string, filename: string): string {
   return `${BASE}/result/${taskId}/${encodeURIComponent(filename)}`;
 }
+
+/** 取消任务（等待中移出队列，运行中终止进程） */
+export async function cancelTask(taskId: string): Promise<{ task_id: string; cancelled: boolean }> {
+  const res = await fetch(`${BASE}/task/${encodeURIComponent(taskId)}/cancel`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await res.json().then((d) => d.detail).catch(() => res.statusText);
+    throw new Error(detail || `取消失败 (HTTP ${res.status})`);
+  }
+  return res.json();
+}
+
+/** 删除任务及其所有文件 */
+export async function deleteTask(taskId: string): Promise<void> {
+  const res = await fetch(`${BASE}/task/${encodeURIComponent(taskId)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const detail = await res.json().then((d) => d.detail).catch(() => res.statusText);
+    throw new Error(detail || `删除失败 (HTTP ${res.status})`);
+  }
+}
+

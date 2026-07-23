@@ -2,10 +2,11 @@ import TaskCard from "./TaskCard";
 
 interface Props {
   taskIds: string[];
+  onDelete: (taskId: string) => void;
 }
 
 /** 任务历史列表。 */
-export default function TaskList({ taskIds }: Props) {
+export default function TaskList({ taskIds, onDelete }: Props) {
   if (taskIds.length === 0) {
     return (
       <div className="text-center py-16 text-gray-400">
@@ -22,7 +23,7 @@ export default function TaskList({ taskIds }: Props) {
   return (
     <div className="space-y-3">
       {reversed.map((id) => (
-        <TaskCard key={id} taskId={id} />
+        <TaskCard key={id} taskId={id} onDelete={onDelete} />
       ))}
     </div>
   );

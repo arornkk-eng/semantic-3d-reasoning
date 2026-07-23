@@ -122,3 +122,32 @@ def cleanup_uploads(task_id: str) -> None:
     upload_dir = UPLOAD_DIR / task_id
     if upload_dir.exists():
         shutil.rmtree(upload_dir)
+
+
+def delete_task(task_id: str) -> bool:
+    """删除任务及其所有关联文件（元数据 + 上传 + 输出）。
+
+    返回 True 表示删除了至少一个文件/目录，
+    返回 False 表示任务不存在。
+    """
+    deleted = False
+
+    # 删除任务元数据
+    meta_path = TASK_DIR / f"{task_id}.json"
+    if meta_path.exists():
+        meta_path.unlink()
+        deleted = True
+
+    # 删除上传目录
+    upload_dir = UPLOAD_DIR / task_id
+    if upload_dir.exists():
+        shutil.rmtree(upload_dir)
+        deleted = True
+
+    # 删除输出目录
+    output_dir = OUTPUT_DIR / task_id
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+        deleted = True
+
+    return deleted

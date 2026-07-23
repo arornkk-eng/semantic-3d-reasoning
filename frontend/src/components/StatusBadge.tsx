@@ -5,6 +5,7 @@ const STATUS_STYLE: Record<TaskStatus, string> = {
   running: "bg-blue-50 text-blue-700 border-blue-300",
   completed: "bg-green-50 text-green-700 border-green-300",
   failed: "bg-red-50 text-red-700 border-red-300",
+  cancelled: "bg-amber-50 text-amber-700 border-amber-300",
 };
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -12,6 +13,7 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
   running: "重建中",
   completed: "已完成",
   failed: "失败",
+  cancelled: "已取消",
 };
 
 interface Props {

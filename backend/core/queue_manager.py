@@ -1,4 +1,4 @@
-"""任务队列：python queue.Queue 包装，支持持久化恢复。"""
+"""任务队列：python queue.Queue 包装，支持取消和持久化恢复。"""
 
 import logging
 import queue
@@ -12,11 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 class TaskQueue:
-    """单 GPU 串行任务队列。"""
+    """单 GPU 串行任务队列，支持按 ID 取消等待中的任务。"""
 
     def __init__(self):
         self._queue: queue.Queue[str] = queue.Queue()
         self._lock = threading.Lock()
+        self._cancelled: set[str] = set()
 
     def enqueue(self, task_id: str) -> None:
         """将任务加入队列。"""
@@ -24,13 +25,41 @@ class TaskQueue:
         logger.info(f"任务入队: {task_id}, 当前队列长度: {self._queue.qsize()}")
 
     def dequeue(self, timeout: float = 1.0) -> Optional[str]:
-        """阻塞地从队列取出一个任务。超时返回 None。"""
-        try:
-            task_id = self._queue.get(timeout=timeout)
+        """阻塞地从队列取出一个任务。跳过已取消的任务。超时返回 None。"""
+        while True:
+            try:
+                task_id = self._queue.get(timeout=timeout)
+            except queue.Empty:
+                return None
+
+            with self._lock:
+                if task_id in self._cancelled:
+                    self._cancelled.discard(task_id)
+                    logger.info(f"跳过已取消的任务: {task_id}")
+                    continue
+
             logger.info(f"任务出队: {task_id}, 剩余: {self._queue.qsize()}")
             return task_id
-        except queue.Empty:
-            return None
+
+    def cancel(self, task_id: str) -> bool:
+        """取消等待中的任务：标记为 cancelled 并从队列逻辑中移除。
+
+        Returns:
+            True  任务在等待队列中，已取消
+            False 任务不在等待队列中（可能已开始执行或已完成）
+        """
+        meta = get_task_meta(task_id)
+        if meta is None or meta["status"] != "waiting":
+            return False
+
+        meta["status"] = "cancelled"
+        save_task_meta(task_id, meta)
+
+        with self._lock:
+            self._cancelled.add(task_id)
+
+        logger.info(f"任务已取消: {task_id}")
+        return True
 
     def size(self) -> int:
         """返回当前队列长度。"""

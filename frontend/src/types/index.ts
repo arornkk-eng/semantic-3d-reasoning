@@ -1,6 +1,6 @@
 // ---- API 响应类型 ----
 
-export type TaskStatus = "waiting" | "running" | "completed" | "failed";
+export type TaskStatus = "waiting" | "running" | "completed" | "failed" | "cancelled";
 
 export interface HealthResponse {
   status: string;
