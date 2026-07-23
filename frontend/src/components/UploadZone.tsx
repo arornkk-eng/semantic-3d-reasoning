@@ -4,7 +4,7 @@ import FilePreview from "./FilePreview";
 import type { UploadResponse } from "../types";
 
 const ALLOWED_EXTS = [".jpg", ".jpeg", ".png", ".bmp", ".webp"];
-const MAX_SIZE = 50 * 1024 * 1024; // 50 MB
+const MAX_SIZE = 100 * 1024 * 1024; // 100 MB
 const MAX_FILES = 50;
 
 interface Props {
@@ -31,7 +31,7 @@ export default function UploadZone({ onTaskCreated }: Props) {
     }
     const total = combined.reduce((s, f) => s + f.size, 0);
     if (total > MAX_SIZE) {
-      return `总大小 ${(total / 1024 / 1024).toFixed(1)} MB 超出限制（50 MB）`;
+      return `总大小 ${(total / 1024 / 1024).toFixed(1)} MB 超出限制（100 MB）`;
     }
     return null;
   }, [files]);
@@ -115,7 +115,7 @@ export default function UploadZone({ onTaskCreated }: Props) {
           拖拽图片到这里，或点击选择
         </p>
         <p className="text-gray-400 text-sm mt-1">
-          支持 JPG / PNG / BMP / WebP · 最多 50 张 · 总大小 ≤ 50 MB
+          支持 JPG / PNG / BMP / WebP · 最多 50 张 · 总大小 ≤ 100 MB
         </p>
       </div>
 

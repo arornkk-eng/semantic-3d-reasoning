@@ -66,7 +66,7 @@ def run_reconstruction(task_id: str) -> dict:
     )
 
     # 2) 饱和度修正：温和提升（1.2×），不改亮度
-    SAT_BOOST = 1.2
+    SAT_BOOST = 1.5
     lum = 0.299 * rgb_raw[:, 0] + 0.587 * rgb_raw[:, 1] + 0.114 * rgb_raw[:, 2]
     rgb_sat = torch.stack([
         lum + SAT_BOOST * (rgb_raw[:, 0] - lum),
@@ -105,7 +105,7 @@ def run_reconstruction(task_id: str) -> dict:
     }
 
 
-def _filter_background(gaussians, alpha_threshold=0.05, eps_ratio=0.02, min_samples=15):
+def _filter_background(gaussians, alpha_threshold=0.05, eps_ratio=0.03, min_samples=12, top_n=3):
     """剔除背景/漂浮高斯球：透明度 + DBSCAN 空间聚类。
 
     Args:
@@ -113,9 +113,10 @@ def _filter_background(gaussians, alpha_threshold=0.05, eps_ratio=0.02, min_samp
         alpha_threshold: 透明度阈值，低于此值的高斯球被删除
         eps_ratio: DBSCAN eps = 场景对角线 × eps_ratio
         min_samples: DBSCAN 核心点最小邻居数
+        top_n: 保留前 N 大簇的并集（降低位姿误差导致的碎片丢弃）
 
     Returns:
-        过滤后的 Gaussians 对象（仅保留最大空间聚类）
+        过滤后的 Gaussians 对象
     """
     import numpy as np
     from sklearn.cluster import DBSCAN
@@ -160,19 +161,25 @@ def _filter_background(gaussians, alpha_threshold=0.05, eps_ratio=0.02, min_samp
         f"簇大小: {sorted(counts.tolist(), reverse=True)[:5]}"
     )
 
-    # ============ Step 4: 保留最大簇 ============
+    # ============ Step 4: 保留前 top_n 大簇的并集 ============
     if len(cluster_ids) == 0:
         logger.warning("DBSCAN 未发现任何簇，保留透明度过滤后的全部高斯球")
-        # 至少过滤掉噪声点
         mask_cluster = np.ones(len(labels), dtype=bool)
     else:
-        largest_label = cluster_ids[counts.argmax()]
-        mask_cluster = labels == largest_label
-        logger.info(f"保留最大簇 #{largest_label}: {mask_cluster.sum():,} 个高斯球")
+        # 按簇大小降序，取前 top_n 个
+        sorted_idx = counts.argsort()[::-1]                       # 降序排列
+        top_k = min(top_n, len(cluster_ids))
+        top_labels = cluster_ids[sorted_idx[:top_k]]
+        top_sizes = counts[sorted_idx[:top_k]]
+        mask_cluster = np.isin(labels, top_labels)
+        logger.info(
+            f"保留前 {top_k} 大簇: {top_sizes.tolist()}, "
+            f"合计 {mask_cluster.sum():,} 个高斯球"
+        )
 
     # 将簇 mask 映射回原始索引
     idx_filtered = torch.where(mask_alpha)[0]                    # 透明度过滤后的原始索引
-    idx_keep = idx_filtered[torch.from_numpy(mask_cluster)]       # 最大簇的原始索引
+    idx_keep = idx_filtered[torch.from_numpy(mask_cluster)]       # 保留簇的原始索引
     final_mask = torch.zeros(n_before, dtype=torch.bool, device=idx_keep.device)
     final_mask[idx_keep] = True
     n_final = final_mask.sum().item()

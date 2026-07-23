@@ -15,5 +15,5 @@ OUTPUT_DIR = DATA_DIR / "outputs"
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 # 上传限制
-MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
 MAX_FILE_COUNT = 50
