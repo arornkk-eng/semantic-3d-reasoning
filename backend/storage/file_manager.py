@@ -31,7 +31,33 @@ def save_uploads(task_id: str, files: list[UploadFile]) -> Path:
     return upload_dir
 
 
+def save_videos(task_id: str, files: list[UploadFile]) -> Path:
+    """将上传的视频保存到 data/uploads/{task_id}/videos/，返回保存目录。"""
+    video_dir = UPLOAD_DIR / task_id / "videos"
+    video_dir.mkdir(parents=True, exist_ok=True)
+    for f in files:
+        file_path = video_dir / f.filename
+        with open(file_path, "wb") as out:
+            f.file.seek(0)
+            shutil.copyfileobj(f.file, out)
+    return video_dir
+
+
 # ---- 任务元数据 ----
+
+def list_all_task_ids() -> list[str]:
+    """列出服务端所有已知任务 ID。"""
+    ids = set()
+    for d in [UPLOAD_DIR, OUTPUT_DIR]:
+        if d.exists():
+            for p in d.iterdir():
+                if p.is_dir() and len(p.name) == 12:  # 12-char hex task IDs
+                    ids.add(p.name)
+    if TASK_DIR.exists():
+        for p in TASK_DIR.glob("*.json"):
+            ids.add(p.stem)
+    return sorted(ids, reverse=True)
+
 
 def get_task_meta(task_id: str) -> Optional[dict]:
     """读取任务元数据，不存在则返回 None。"""
@@ -51,17 +77,64 @@ def save_task_meta(task_id: str, meta: dict) -> None:
     tmp_path.replace(meta_path)
 
 
-def create_task_meta(task_id: str, filenames: list[str]) -> dict:
-    """创建新任务的初始元数据。"""
+def create_task_meta(task_id: str, filenames: list[str], mode: str = "object") -> dict:
+    """创建新任务的初始元数据。
+
+    Args:
+        task_id: 任务 ID
+        filenames: 上传的文件名列表
+        mode: 重建模式 — \"object\"（物体）或 \"scene\"（场景）
+    """
     now = _tz_now()
     meta = {
         "task_id": task_id,
         "status": "waiting",
+        "type": "image",
+        "mode": mode,
         "created_at": now,
         "updated_at": now,
         "input": {
             "file_count": len(filenames),
             "filenames": filenames,
+        },
+        "output": None,
+        "error": None,
+    }
+    save_task_meta(task_id, meta)
+    return meta
+
+
+def create_video_task_meta(
+    task_id: str,
+    filenames: list[str],
+    mode: str = "scene",
+    max_frames: int = 40,
+    sample_interval: float = 1.0,
+) -> dict:
+    """创建视频重建任务的初始元数据。
+
+    Args:
+        task_id: 任务 ID
+        filenames: 视频文件名列表
+        mode: 重建模式（默认 scene）
+        max_frames: 最终保留的最大帧数
+        sample_interval: 采样间隔（秒）
+    """
+    now = _tz_now()
+    meta = {
+        "task_id": task_id,
+        "status": "waiting",
+        "type": "video",
+        "mode": mode,
+        "created_at": now,
+        "updated_at": now,
+        "input": {
+            "video_count": len(filenames),
+            "filenames": filenames,
+        },
+        "video_config": {
+            "max_frames": max_frames,
+            "sample_interval": sample_interval,
         },
         "output": None,
         "error": None,

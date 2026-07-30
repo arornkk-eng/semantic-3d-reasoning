@@ -1,13 +1,15 @@
 import { useState, useCallback, useEffect } from "react";
 import { useHealth } from "./hooks/useHealth";
 import HealthBadge from "./components/HealthBadge";
+import PlyViewer from "./components/PlyViewer";
 import UploadZone from "./components/UploadZone";
 import TaskList from "./components/TaskList";
+import { listTasks } from "./api/client";
 import type { TaskHistoryEntry } from "./types";
 
 const HISTORY_KEY = "zipsplat_task_history";
 
-type Tab = "upload" | "tasks" | "about";
+type Tab = "upload" | "tasks" | "ply-viewer" | "about";
 
 function loadHistory(): TaskHistoryEntry[] {
   try {
@@ -63,9 +65,29 @@ export default function App() {
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
+  // 启动时从服务端拉取任务列表（合并跨设备的任务）
+  useEffect(() => {
+    listTasks()
+      .then((data) => {
+        const localIds = new Set(loadHistory().map((e) => e.task_id));
+        let changed = false;
+        for (const id of data.task_ids) {
+          if (!localIds.has(id)) {
+            addToHistory(id);
+            changed = true;
+          }
+        }
+        if (changed) {
+          setTaskIds(loadHistory().map((e) => e.task_id));
+        }
+      })
+      .catch(() => {}); // 静默失败
+  }, []);
+
   const tabs: { key: Tab; label: string }[] = [
     { key: "upload", label: "📤 上传" },
     { key: "tasks", label: `📋 任务 (${taskIds.length})` },
+    { key: "ply-viewer", label: "📂 PLY 查看" },
     { key: "about", label: "ℹ️ 关于" },
   ];
 
@@ -110,9 +132,9 @@ export default function App() {
             <UploadZone onTaskCreated={handleTaskCreated} />
             <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-800">
               <strong>💡 拍摄建议：</strong>
-              围绕物体拍摄 5~20 张不同角度的照片，保持物体在画面中心，
-              相邻照片之间角度变化不宜过大（约 15°~30°）。
-              背景简洁、光线均匀的效果最佳。
+              拍摄整个空间的全景照片 10~50 张或录制视频，覆盖所有视角。
+              保持相邻照片之间有足够的重叠（约 60%~80%），
+              光线均匀、避免过曝或欠曝。完整环境将被保留。
             </div>
           </section>
         )}
@@ -123,6 +145,15 @@ export default function App() {
               重建任务
             </h2>
             <TaskList taskIds={taskIds} onDelete={handleTaskDeleted} />
+          </section>
+        )}
+
+        {activeTab === "ply-viewer" && (
+          <section>
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">
+              直接查看 PLY 文件
+            </h2>
+            <PlyViewer />
           </section>
         )}
 

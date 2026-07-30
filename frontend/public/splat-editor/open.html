@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Redirecting to Editor...</title>
+    <script>
+    var params = new URL(location.href).searchParams;
+    var contentUrl = params.get('content');
+    var filename = params.get('filename') || 'scene.ply';
+
+    if (contentUrl) {
+        // 编辑器原生支持 ?load= 参数，直接跳转
+        var editorUrl = './index.html' +
+            '?load=' + encodeURIComponent(contentUrl) +
+            '&filename=' + encodeURIComponent(filename);
+        location.replace(editorUrl);
+    } else {
+        location.replace('./index.html');
+    }
+    </script>
+</head>
+<body></body>
+</html>

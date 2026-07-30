@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>SuperSplat</title>
+        <meta charset="utf-8" />
+        <base href="">
+        <link rel="manifest" href="./manifest.json">
+        <link rel="stylesheet" href="./index.css">
+        <link rel="shortcut icon" href="#">
+        <meta name="description" content="SuperSplat is an advanced browser-based editor for manipulating and optimizing 3D Gaussian Splats. It is open source and engine agnostic." />
+        <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+
+        <!-- Service worker -->
+        <script>
+            const sw = navigator.serviceWorker;
+            if (sw) {
+                sw.register('./sw.js')
+                    .then(reg => console.log('service worker registered', reg))
+                    .catch(err => console.log('failed to register service worker', err));
+            }
+        </script>
+    </head>
+
+    <body>
+        <!-- 返回查看器按钮 -->
+        <div id="viewerOverlay" style="position:fixed;bottom:20px;right:20px;z-index:10000">
+            <button id="viewBtn" style="
+                background:rgba(30,30,30,0.85);color:#fff;border:1px solid rgba(255,255,255,0.2);
+                border-radius:24px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;
+                box-shadow:0 4px 16px rgba(0,0,0,0.4);transition:background 0.2s;
+                display:flex;align-items:center;gap:8px;
+            " onmouseover="this.style.background='rgba(50,50,50,0.9)'" onmouseout="this.style.background='rgba(30,30,30,0.85)'">
+                🔍 返回查看
+            </button>
+        </div>
+
+        <!-- 识别面板 -->
+        <div id="recogPanel" style="position:fixed;top:80px;right:16px;z-index:100;pointer-events:auto;
+            background:rgba(20,20,20,0.92);color:#fff;border-radius:12px;padding:14px;
+            font-size:12px;width:250px;box-shadow:0 4px 20px rgba(0,0,0,0.5);
+            display:none;max-height:calc(100vh - 160px);overflow-y:auto;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <span style="font-weight:700;font-size:13px;">🔍 场景识别</span>
+                <button id="recogToggle" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:16px;line-height:1;">−</button>
+            </div>
+            <input id="recogInput" type="text" placeholder="输入物体名称，如「水杯」"
+                style="width:100%;box-sizing:border-box;padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);
+                background:rgba(255,255,255,0.1);color:#fff;font-size:12px;outline:none;margin-bottom:6px;">
+            <div style="display:flex;gap:6px;margin-bottom:10px;">
+                <button id="recogBtn" style="flex:1;padding:6px;border:none;border-radius:6px;background:#7c3aed;color:#fff;
+                    font-size:12px;font-weight:600;cursor:pointer;">🔍 识别</button>
+                <button id="discoverBtn" style="flex:1;padding:6px;border:none;border-radius:6px;background:#4f46e5;color:#fff;
+                    font-size:12px;font-weight:600;cursor:pointer;">🤖 自动发现</button>
+            </div>
+            <div id="recogStatus" style="display:none;text-align:center;color:#aaa;padding:8px;font-size:11px;"></div>
+            <div id="recogContent"></div>
+        </div>
+
+        <script>
+        (function() {
+            var params = new URL(location.href).searchParams;
+            var contentUrl = params.get('content') || sessionStorage.getItem('__autoload_url');
+            var taskId = params.get('task_id');
+
+            // ---- 返回按钮 ----
+            var btn = document.getElementById('viewBtn');
+            if (contentUrl) {
+                btn.addEventListener('click', function() {
+                    window.location.href = '/splat-viewer/index.html?content=' + encodeURIComponent(contentUrl) + '&hpr=1&aa';
+                });
+            } else {
+                btn.style.display = 'none';
+            }
+
+            // ---- 识别面板 ----
+            if (!taskId) return;
+
+            var panel = document.getElementById('recogPanel');
+            var content = document.getElementById('recogContent');
+            var statusEl = document.getElementById('recogStatus');
+            var toggleBtn = document.getElementById('recogToggle');
+            var input = document.getElementById('recogInput');
+            var recogBtn = document.getElementById('recogBtn');
+            var discoverBtn = document.getElementById('discoverBtn');
+            var collapsed = false;
+
+            toggleBtn.addEventListener('click', function() {
+                collapsed = !collapsed;
+                content.style.display = collapsed ? 'none' : 'block';
+                input.style.display = collapsed ? 'none' : 'block';
+                recogBtn.parentElement.style.display = collapsed ? 'none' : 'flex';
+                toggleBtn.textContent = collapsed ? '+' : '−';
+            });
+            panel.style.display = 'block';
+
+            function setLoading(msg) {
+                statusEl.style.display = msg ? 'block' : 'none';
+                statusEl.textContent = msg || '';
+                recogBtn.disabled = !!msg;
+                discoverBtn.disabled = !!msg;
+            }
+
+            function renderResults(labels, clusters) {
+                var html = '';
+                if (labels && labels.objects && Object.keys(labels.objects).length > 0) {
+                    html += '<div style="margin-bottom:8px;">';
+                    html += '<div style="color:#a78bfa;font-weight:600;margin-bottom:4px;font-size:11px;">已识别物体</div>';
+                    Object.entries(labels.objects).forEach(function(entry) {
+                        var name = entry[0];
+                        var info = entry[1];
+                        html += '<div style="padding:6px 8px;margin-bottom:3px;background:rgba(255,255,255,0.08);border-radius:6px;">';
+                        html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+                        html += '<span style="font-weight:600;">' + name + '</span>';
+                        html += '<span style="font-size:10px;color:#a78bfa;">' + Math.round(info.score * 100) + '%</span>';
+                        html += '</div>';
+                        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px;">';
+                        html += '<span style="color:#aaa;font-size:10px;">' + info.count.toLocaleString() + ' pts</span>';
+                        html += '<button data-obj-name="' + name + '" class="selectBtn" style="background:#f26722;color:#fff;border:none;border-radius:3px;padding:1px 8px;font-size:10px;cursor:pointer;">☐ 选中</button>';
+                        html += '<button data-obj-name="' + name + '" class="deselectBtn" style="background:rgba(255,255,255,0.15);color:#fff;border:none;border-radius:3px;padding:1px 8px;font-size:10px;cursor:pointer;margin-left:2px;">✕</button>';
+                        html += '</div></div>';
+                    });
+                    html += '</div>';
+                }
+                if (clusters && clusters.clusters && clusters.clusters.length > 0) {
+                    html += '<div>';
+                    html += '<div style="color:#818cf8;font-weight:600;margin-bottom:4px;font-size:11px;">场景分析 (' + clusters.clusters.length + ')</div>';
+                    clusters.clusters.forEach(function(c) {
+                        var rgb = c.dominant_color_rgb.map(function(v) { return Math.round(v * 255); }).join(',');
+                        var label = c.suggested_label || ('区域 ' + (c.cluster_id + 1));
+                        var conf = c.label_confidence != null ? Math.round(c.label_confidence * 100) : 0;
+                        html += '<div style="display:flex;align-items:center;gap:6px;padding:3px 6px;margin-bottom:2px;background:rgba(255,255,255,0.05);border-radius:4px;">';
+                        html += '<div style="width:10px;height:10px;border-radius:50%;background:rgb(' + rgb + ');border:1px solid rgba(255,255,255,0.2);flex-shrink:0;"></div>';
+                        html += '<div style="flex:1;min-width:0;">';
+                        html += '<div style="font-size:11px;color:#ddd;text-transform:capitalize;">' + label + '</div>';
+                        html += '<div style="font-size:10px;color:#888;">' + c.count.toLocaleString() + ' pts';
+                        if (conf > 0) html += ' · ' + conf + '%';
+                        html += '</div></div></div>';
+                    });
+                    html += '</div>';
+                }
+                if (!html) html = '<div style="color:#666;font-size:11px;">输入物体名称后点击识别</div>';
+                content.innerHTML = html;
+            }
+
+            function loadExisting() {
+                Promise.all([
+                    fetch('/api/task/' + taskId + '/labels').then(function(r) { return r.json(); }).catch(function() { return null; }),
+                    fetch('/api/task/' + taskId + '/clusters').then(function(r) { return r.json(); }).catch(function() { return null; })
+                ]).then(function(results) { renderResults(results[0], results[1]); });
+            }
+
+            recogBtn.addEventListener('click', function() {
+                var q = input.value.trim();
+                if (!q) return;
+                setLoading('识别中…');
+                fetch('/api/task/' + taskId + '/recognize', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({objects: [q], box_threshold: 0.15, z_threshold: 1.5, use_clip: true, use_sam: true})
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                    setLoading(null);
+                    if (data.labels && Object.keys(data.labels).length > 0) {
+                        fetch('/api/task/' + taskId + '/labels').then(function(r) { return r.json(); }).then(function(existing) {
+                            var merged = {objects: {}};
+                            if (existing && existing.objects) Object.assign(merged.objects, existing.objects);
+                            Object.assign(merged.objects, data.labels);
+                            fetch('/api/task/' + taskId + '/clusters').then(function(r) { return r.json(); }).then(function(clu) {
+                                renderResults(merged, clu);
+                            }).catch(function() { renderResults(merged, null); });
+                        }).catch(function() { renderResults({objects: data.labels}, null); });
+                    } else {
+                        content.innerHTML = '<div style="color:#f87171;font-size:11px;">未检测到「' + q + '」</div>';
+                    }
+                    input.value = '';
+                }).catch(function(e) {
+                    setLoading(null);
+                    content.innerHTML = '<div style="color:#f87171;font-size:11px;">识别失败</div>';
+                });
+            });
+            input.addEventListener('keydown', function(e) { if (e.key === 'Enter') recogBtn.click(); });
+
+            discoverBtn.addEventListener('click', function() {
+                setLoading('聚类分析中…');
+                fetch('/api/task/' + taskId + '/discover', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({n_clusters: 5})
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                    setLoading(null);
+                    fetch('/api/task/' + taskId + '/labels').then(function(r) { return r.json(); }).then(function(labels) {
+                        renderResults(labels, data);
+                    }).catch(function() { renderResults(null, data); });
+                }).catch(function(e) {
+                    setLoading(null);
+                    content.innerHTML = '<div style="color:#f87171;font-size:11px;">发现失败</div>';
+                });
+            });
+
+            loadExisting();
+
+            // ☐ 选中 / ✕ 取消选中按钮
+            content.addEventListener('click', function(e) {
+                var btn = e.target.closest('.selectBtn');
+                var deselectBtn = e.target.closest('.deselectBtn');
+
+                if (btn) {
+                    var objName = btn.getAttribute('data-obj-name');
+                    if (!objName) return;
+                    btn.textContent = '...';
+                    btn.disabled = true;
+                    fetch('/api/task/' + taskId + '/indices/' + encodeURIComponent(objName))
+                        .then(function(r) { return r.json(); })
+                        .then(function(data) {
+                            if (window.__selectGaussians && data.indices) {
+                                window.__selectGaussians(data.indices);
+                                btn.textContent = '✓ 已选中';
+                                btn.style.background = '#22c55e';
+                            }
+                            btn.disabled = false;
+                        })
+                        .catch(function() { btn.textContent = '☐ 选中'; btn.style.background = '#f26722'; btn.disabled = false; });
+                    // 恢复其他按钮状态
+                    content.querySelectorAll('.selectBtn').forEach(function(b) { if (b !== btn) { b.textContent = '☐ 选中'; b.style.background = '#f26722'; } });
+                }
+
+                if (deselectBtn) {
+                    if (window.__selectGaussians) {
+                        window.__selectGaussians([]);
+                        content.querySelectorAll('.selectBtn').forEach(function(b) { b.textContent = '☐ 选中'; b.style.background = '#f26722'; });
+                    }
+                }
+            });
+        })();
+        </script>
+
+        <script type="module" src="./index.js"></script>
+    </body>
+</html>

@@ -68,6 +68,46 @@ export default function TaskCard({ taskId, onDelete }: Props) {
   const shortId = task.task_id.slice(0, 8);
   const timeStr = new Date(task.created_at).toLocaleString("zh-CN");
   const isActive = task.status === "waiting" || task.status === "running";
+  const isVideo = task.type === "video";
+
+  // ---- 进度计算 ----
+  const getProgress = (): { pct: number; label: string; remaining: string } => {
+    // 已完成 → 100%
+    if (task.status === "completed") return { pct: 100, label: "完成", remaining: "" };
+    if (task.status === "failed") return { pct: 100, label: "失败", remaining: "" };
+    if (task.status === "cancelled") return { pct: 100, label: "已取消", remaining: "" };
+
+    // 后端有明确的 progress_pct
+    if (task.progress_pct !== undefined && task.progress_pct > 0) {
+      const stageLabel = task.stage === "extracting" ? "抽帧中" : "重建中";
+      return { pct: task.progress_pct, label: stageLabel, remaining: "…" };
+    }
+
+    // 等待中 → 0%
+    if (task.status === "waiting") {
+      return { pct: 0, label: "排队中", remaining: "等待 worker…" };
+    }
+
+    // 运行中：基于时间估算
+    const estimated = task.estimated_seconds || (isVideo ? 360 : 120);
+    const startedAt = task.started_at ? new Date(task.started_at).getTime() : new Date(task.created_at).getTime();
+    const elapsed = (Date.now() - startedAt) / 1000;
+    const pct = Math.min(Math.round((elapsed / estimated) * 100), 95);
+    const stageLabel = task.stage === "extracting" ? "抽帧中" : "重建中";
+    const remainSec = Math.max(0, estimated - elapsed);
+    const remaining = remainSec > 60
+      ? `约 ${Math.ceil(remainSec / 60)} 分钟`
+      : `约 ${Math.ceil(remainSec)} 秒`;
+
+    return { pct, label: stageLabel, remaining };
+  };
+
+  const progress = getProgress();
+  const progressColor =
+    task.status === "failed" ? "bg-red-500" :
+    task.status === "cancelled" ? "bg-amber-500" :
+    task.status === "completed" ? "bg-green-500" :
+    "bg-blue-500";
 
   return (
     <div className="p-4 bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow transition-shadow relative group">
@@ -127,14 +167,41 @@ export default function TaskCard({ taskId, onDelete }: Props) {
         <div className="flex items-center gap-2">
           <code className="text-sm font-mono text-gray-500">{shortId}…</code>
           <StatusBadge status={task.status} />
+          {isVideo && <span className="text-xs bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded">视频</span>}
         </div>
         <span className="text-xs text-gray-400">{timeStr}</span>
       </div>
 
       {/* 详情 */}
-      <div className="text-xs text-gray-500 mb-1">
-        {task.input.file_count} 张图片
+      <div className="text-xs text-gray-500 mb-2">
+        {isVideo
+          ? `${task.video_config?.max_frames || task.video_result?.selected || "?"} 帧 (${task.input?.video_count || task.input?.file_count || "?"} 段视频)`
+          : `${task.input?.file_count || "?"} 张图片`}
+        {task.mode === "scene" ? " · 场景模式" : " · 物体模式"}
       </div>
+
+      {/* 进度条 — 活跃任务显示 */}
+      {(isActive || task.status === "completed" || task.status === "failed" || task.status === "cancelled") && (
+        <div className="mt-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-gray-500">
+              {progress.label}
+              {progress.remaining && (
+                <span className="ml-2 text-gray-400">({progress.remaining})</span>
+              )}
+            </span>
+            <span className="text-xs font-mono text-gray-500">{progress.pct}%</span>
+          </div>
+          <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-1000 ease-linear ${progressColor} ${
+                isActive ? "progress-bar-animated" : ""
+              }`}
+              style={{ width: `${progress.pct}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* 取消错误提示 */}
       {cancelError && (

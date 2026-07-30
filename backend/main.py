@@ -10,7 +10,8 @@ import threading
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api import result, task, upload
+from backend.api import ply_viewer, result, task, upload
+from backend.recognition.router import router as recognition_router
 from backend.core.config import OUTPUT_DIR, TASK_DIR, UPLOAD_DIR
 from backend.core.queue_manager import TaskQueue
 from backend.core.worker import start_worker
@@ -86,7 +87,16 @@ async def health():
     }
 
 
+@app.get("/api/tasks")
+async def list_tasks():
+    """列出服务端所有任务 ID。"""
+    from backend.storage.file_manager import list_all_task_ids
+    return {"task_ids": list_all_task_ids()}
+
+
 # ---- 注册路由 ----
 app.include_router(upload.router, prefix="/api")
 app.include_router(task.router, prefix="/api")
 app.include_router(result.router, prefix="/api")
+app.include_router(recognition_router, prefix="/api")
+app.include_router(ply_viewer.router, prefix="/api")

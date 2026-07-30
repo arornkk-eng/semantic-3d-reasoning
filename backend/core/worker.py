@@ -84,12 +84,19 @@ def _worker_loop(queue: TaskQueue) -> None:
 
         logger.info(f"开始处理任务: {task_id}")
 
-        # 1. 更新状态为 running
+        # 1. 更新状态为 running + 时间预估
         meta = get_task_meta(task_id)
         if meta is None:
             logger.error(f"任务不存在: {task_id}")
             continue
         meta["status"] = "running"
+        meta["started_at"] = meta.get("updated_at", "")  # worker 开始处理的时间
+        # 预估耗时：图片任务 ~2min，视频任务 ~6min
+        is_video = meta.get("type") == "video"
+        frame_count = meta.get("video_config", {}).get("max_frames", 25) if is_video else meta.get("input", {}).get("file_count", 10)
+        meta["estimated_seconds"] = 300 if is_video else 120  # 25帧≈5分钟
+        meta["stage"] = "extracting" if is_video else "reconstructing"
+        meta["progress_pct"] = 0
         save_task_meta(task_id, meta)
 
         # 2. 在子进程中执行重建（隔离 GPU 上下文）
@@ -157,7 +164,64 @@ def _run_in_subprocess(task_id: str) -> None:
         from backend.zipsplat_engine.runner import run_reconstruction
         from backend.storage.file_manager import get_task_meta as _get, save_task_meta as _save
 
-        result = run_reconstruction(task_id)
+        meta = _get(task_id)
+        mode = meta.get("mode", "object") if meta else "object"
+        task_type = meta.get("type", "image") if meta else "image"
+
+        # ---- 视频任务：先提取帧 ----
+        if task_type == "video":
+            from pathlib import Path
+            from backend.core.config import UPLOAD_DIR
+            from backend.video_processor.extractor import extract_and_select
+
+            video_config = meta.get("video_config", {})
+            max_frames = video_config.get("max_frames", 25)
+            sample_interval = video_config.get("sample_interval", 1.0)
+
+            video_dir = UPLOAD_DIR / task_id / "videos"
+            if not video_dir.exists():
+                raise FileNotFoundError(f"视频目录不存在: {video_dir}")
+
+            video_paths = sorted(video_dir.iterdir())
+            sub_logger.info(
+                f"视频任务: {len(video_paths)} 段视频, "
+                f"max_frames={max_frames}, interval={sample_interval}s"
+            )
+
+            # 输出帧到 uploads/{task_id}/（与图片任务一致，方便 run_reconstruction 读取）
+            frame_dir = UPLOAD_DIR / task_id
+            extract_result = extract_and_select(
+                video_paths=video_paths,
+                output_dir=frame_dir,
+                max_frames=max_frames,
+                sample_interval=sample_interval,
+            )
+
+            sub_logger.info(
+                f"帧提取完成: 原始 {extract_result['total_extracted']} → "
+                f"质量通过 {extract_result['quality_passed']} → "
+                f"选中 {extract_result['selected']}"
+            )
+
+            # 更新元数据：抽帧完成，进入重建阶段
+            meta = _get(task_id)
+            if meta:
+                meta["stage"] = "reconstructing"
+                meta["progress_pct"] = 20  # 抽帧约占 20% 总进度
+                meta["video_result"] = {
+                    "total_extracted": extract_result["total_extracted"],
+                    "quality_passed": extract_result["quality_passed"],
+                    "selected": extract_result["selected"],
+                }
+                _save(task_id, meta)
+
+            # 如果没选出任何帧，直接失败
+            if extract_result["selected"] == 0:
+                raise RuntimeError("未能从视频中选出任何合格帧，请检查视频质量或降低阈值")
+
+        # ---- 执行重建 ----
+        sub_logger.info(f"重建模式: {mode}")
+        result = run_reconstruction(task_id, mode=mode)
 
         # 成功 → 更新元数据为 completed
         meta = _get(task_id)
