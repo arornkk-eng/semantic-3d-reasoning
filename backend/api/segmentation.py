@@ -4,11 +4,10 @@ import io
 import json
 
 import numpy as np
-from pydantic import ValidationError
-from starlette.concurrency import run_in_threadpool
-
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import ValidationError
+from starlette.concurrency import run_in_threadpool
 
 from backend.core.config import SEGMENTATION_SESSION_TTL_SECONDS
 from backend.core.schemas import (

@@ -108,7 +108,7 @@ def refine_gaussian_selection(
 
 def _estimate_normals(points: np.ndarray, neighbor_table: np.ndarray) -> np.ndarray:
     normals = np.zeros_like(points)
-    for index, point in enumerate(points):
+    for index in range(len(points)):
         neighbors = neighbor_table[index]
         neighbors = neighbors[neighbors < len(points)][:16]
         if len(neighbors) < 3:
