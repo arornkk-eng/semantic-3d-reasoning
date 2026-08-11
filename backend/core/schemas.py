@@ -197,10 +197,7 @@ class LayerCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_index_sets(self):
-        if any(
-            index_set.instance_id != self.session_id
-            for index_set in self.gaussian_index_sets
-        ):
+        if any(index_set.instance_id != self.session_id for index_set in self.gaussian_index_sets):
             raise ValueError("Gaussian index set 不属于当前分割会话")
         _validate_gaussian_index_set_collection(self.gaussian_index_sets)
         return self

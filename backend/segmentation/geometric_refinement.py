@@ -24,7 +24,12 @@ def refine_gaussian_selection(
         raise ValueError("scene_radius 必须大于 0")
     if seeds.size == 0:
         raise ValueError("精细补全需要至少一个种子")
-    if np.any(seeds < 0) or np.any(seeds >= count) or np.any(candidates < 0) or np.any(candidates >= count):
+    if (
+        np.any(seeds < 0)
+        or np.any(seeds >= count)
+        or np.any(candidates < 0)
+        or np.any(candidates >= count)
+    ):
         raise ValueError("Gaussian 索引越界")
 
     positions = geometry[:, :3].astype(np.float64, copy=False)

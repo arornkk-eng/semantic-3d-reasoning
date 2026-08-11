@@ -106,14 +106,12 @@ def _multiview_overlap(
     else:
         camera_x = nx * linear_depth / projection[0, 0]
         camera_y = ny * linear_depth / projection[1, 1]
-    camera_points = np.stack(
-        [camera_x, camera_y, -linear_depth, np.ones_like(linear_depth)]
-    )
+    camera_points = np.stack([camera_x, camera_y, -linear_depth, np.ones_like(linear_depth)])
     view = np.asarray(center_view["view_matrix"], dtype=np.float64).reshape(4, 4, order="F")
     world_points = np.linalg.inv(view) @ camera_points
-    target_projection = np.asarray(
-        target_view["projection_matrix"], dtype=np.float64
-    ).reshape(4, 4, order="F")
+    target_projection = np.asarray(target_view["projection_matrix"], dtype=np.float64).reshape(
+        4, 4, order="F"
+    )
     target_view_matrix = np.asarray(target_view["view_matrix"], dtype=np.float64).reshape(
         4, 4, order="F"
     )
@@ -123,13 +121,7 @@ def _multiview_overlap(
     target_height, target_width = target_mask.shape
     tx = np.floor((ndc[0] + 1) * 0.5 * target_width).astype(np.int64)
     ty = np.floor((1 - ndc[1]) * 0.5 * target_height).astype(np.int64)
-    inside = (
-        in_front
-        & (tx >= 0)
-        & (tx < target_width)
-        & (ty >= 0)
-        & (ty < target_height)
-    )
+    inside = in_front & (tx >= 0) & (tx < target_width) & (ty >= 0) & (ty < target_height)
     hits = np.zeros(len(tx), dtype=bool)
     hits[inside] = target_mask[ty[inside], tx[inside]]
     return float(hits.mean())
@@ -277,9 +269,7 @@ class SemanticSegmentationService:
                         raise ValueError("depth count must match image count")
                     depth_maps = [
                         _decode_depth_map(payload, image.width, image.height, view_index)
-                        for view_index, payload in enumerate(
-                            [depth_bytes, *support_depth_payloads]
-                        )
+                        for view_index, payload in enumerate([depth_bytes, *support_depth_payloads])
                     ]
                 center_depth = depth_maps[0]
 
@@ -303,17 +293,13 @@ class SemanticSegmentationService:
                     support_tensor = weights.transforms()(support_image).cuda()
                     with torch.inference_mode():
                         support_output = model([support_tensor])[0]
-                    support_instances_by_view.append(
-                        _target_instances(support_output, categories)
-                    )
+                    support_instances_by_view.append(_target_instances(support_output, categories))
                     del support_tensor, support_output
 
                 matched_by_center: dict[int, list[tuple[int, _TargetInstance]]] = {
                     index: [] for index in range(len(center_instances))
                 }
-                for view_index, target_instances in enumerate(
-                    support_instances_by_view, start=1
-                ):
+                for view_index, target_instances in enumerate(support_instances_by_view, start=1):
                     matches = _match_instances(
                         center_instances,
                         target_instances,

@@ -55,9 +55,7 @@ SPLAT_SCALE_FACTOR = 1.0
 SAM2_CHECKPOINT = Path(
     os.environ.get("SAM2_CHECKPOINT", PROJECT_ROOT / "models" / "sam2.1_hiera_tiny.pt")
 )
-SAM2_MODEL_CONFIG = os.environ.get(
-    "SAM2_MODEL_CONFIG", "configs/sam2.1/sam2.1_hiera_t.yaml"
-)
+SAM2_MODEL_CONFIG = os.environ.get("SAM2_MODEL_CONFIG", "configs/sam2.1/sam2.1_hiera_t.yaml")
 SEGMENTATION_SESSION_TTL_SECONDS = 10 * 60
 MAX_SEGMENTATION_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_SEGMENTATION_IMAGE_SIDE = 4096

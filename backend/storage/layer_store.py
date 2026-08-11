@@ -83,8 +83,8 @@ def create_layer(
                 ),
             }
         )
-    source_ply_sha256, source_ply_sha256_status = (
-        source_ply_fingerprint or hash_task_scene_ply(session.task_id)
+    source_ply_sha256, source_ply_sha256_status = source_ply_fingerprint or hash_task_scene_ply(
+        session.task_id
     )
     created_at = datetime.now(UTC).isoformat()
     data = {
@@ -113,7 +113,9 @@ def create_layer(
         "projection": session.projection,
         "auxiliary_views": session.auxiliary_views,
         "depth_file": "depth.f32" if session.depth_f32 is not None else None,
-        "depth_format": "float32-normalized-linear-view-z" if session.depth_f32 is not None else None,
+        "depth_format": "float32-normalized-linear-view-z"
+        if session.depth_f32 is not None
+        else None,
         "created_at": created_at,
         "mask_url": f"/api/tasks/{session.task_id}/layers/{layer_id}/mask",
         "gaussian_indices": gaussian_indices,

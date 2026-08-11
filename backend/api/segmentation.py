@@ -44,9 +44,7 @@ router = APIRouter()
 
 
 @router.post("/semantic/refine3d", response_model=GeometricRefineResponse)
-async def refine_semantic_3d(
-    metadata: str = Form(...), geometry: UploadFile = File(...)
-):
+async def refine_semantic_3d(metadata: str = Form(...), geometry: UploadFile = File(...)):
     try:
         data = GeometricRefineMetadata.model_validate_json(metadata)
     except ValidationError as exc:
@@ -106,8 +104,7 @@ def _validate_source_vertex_counts(
     if isinstance(known_vertex_count, bool) or not isinstance(known_vertex_count, int):
         return
     if any(
-        index_set.source_index == 0
-        and index_set.source_vertex_count != known_vertex_count
+        index_set.source_index == 0 and index_set.source_vertex_count != known_vertex_count
         for index_set in index_sets
     ):
         raise ValueError("source_vertex_count 与任务 scene.ply 不匹配")
@@ -174,9 +171,7 @@ async def get_semantic_mask(result_id: str, instance_id: str):
     return StreamingResponse(io.BytesIO(instance.mask_png), media_type="image/png")
 
 
-@router.get(
-    "/semantic/results/{result_id}/instances/{instance_id}/views/{view_index}/mask"
-)
+@router.get("/semantic/results/{result_id}/instances/{instance_id}/views/{view_index}/mask")
 async def get_semantic_view_mask(result_id: str, instance_id: str, view_index: int):
     try:
         instance = semantic_service.get(result_id).instances[instance_id]
@@ -270,9 +265,7 @@ def _parse_metadata(raw: str) -> dict:
 
 
 @router.post("/segmentation/sessions", response_model=SegmentationSessionResponse)
-async def create_segmentation_session(
-    image: UploadFile = File(...), metadata: str = Form(...)
-):
+async def create_segmentation_session(image: UploadFile = File(...), metadata: str = Form(...)):
     if image.content_type not in {"image/png", "image/jpeg", "image/webp"}:
         raise HTTPException(status_code=415, detail="截图必须是 PNG、JPEG 或 WebP")
     data = _parse_metadata(metadata)
@@ -362,9 +355,7 @@ async def get_layer_mask(task_id: str, layer_id: str):
     return FileResponse(path, media_type="image/png")
 
 
-@router.get(
-    "/tasks/{task_id}/layers/{layer_id}/gaussian-indices/{source_index}"
-)
+@router.get("/tasks/{task_id}/layers/{layer_id}/gaussian-indices/{source_index}")
 async def get_layer_gaussian_indices(task_id: str, layer_id: str, source_index: int):
     path = get_gaussian_indices_path(task_id, layer_id, source_index)
     if path is None:

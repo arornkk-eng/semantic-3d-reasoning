@@ -79,9 +79,9 @@ def test_layer_persistence(tmp_path, monkeypatch):
     monkeypatch.setattr(
         layer_store,
         "get_output_path",
-        lambda task_id, filename: scene_ply
-        if task_id == "abc123" and filename == "scene.ply"
-        else None,
+        lambda task_id, filename: (
+            scene_ply if task_id == "abc123" and filename == "scene.ply" else None
+        ),
     )
     mask = np.ones((2, 2), dtype=bool)
     png, rle, bbox = _encode_mask(mask)

@@ -71,7 +71,11 @@ class SegmentationSession:
 def _encode_mask(mask: np.ndarray) -> tuple[bytes, dict, list[int]]:
     binary = np.asarray(mask, dtype=bool)
     ys, xs = np.nonzero(binary)
-    bbox = [0, 0, 0, 0] if len(xs) == 0 else [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())]
+    bbox = (
+        [0, 0, 0, 0]
+        if len(xs) == 0
+        else [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())]
+    )
     image = Image.fromarray(binary.astype(np.uint8) * 255, mode="L")
     buffer = io.BytesIO()
     image.save(buffer, format="PNG", optimize=True)
@@ -88,7 +92,11 @@ def _encode_mask(mask: np.ndarray) -> tuple[bytes, dict, list[int]]:
             run = 1
             value = item_value
     counts.append(run)
-    return buffer.getvalue(), {"size": list(binary.shape), "counts": counts, "order": "row-major"}, bbox
+    return (
+        buffer.getvalue(),
+        {"size": list(binary.shape), "counts": counts, "order": "row-major"},
+        bbox,
+    )
 
 
 class SegmentationService:
@@ -98,7 +106,10 @@ class SegmentationService:
         self._session: SegmentationSession | None = None
 
     def _expire(self) -> None:
-        if self._session and time.monotonic() - self._session.touched_at > SEGMENTATION_SESSION_TTL_SECONDS:
+        if (
+            self._session
+            and time.monotonic() - self._session.touched_at > SEGMENTATION_SESSION_TTL_SECONDS
+        ):
             self.close(self._session.session_id)
 
     def _load_predictor(self):

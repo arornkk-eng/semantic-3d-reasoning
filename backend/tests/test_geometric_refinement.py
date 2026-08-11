@@ -14,9 +14,7 @@ def _geometry() -> np.ndarray:
 
 
 def test_refinement_grows_into_supported_local_candidate():
-    result = refine_gaussian_selection(
-        _geometry(), list(range(8)), [8, 9, 10], scene_radius=1
-    )
+    result = refine_gaussian_selection(_geometry(), list(range(8)), [8, 9, 10], scene_radius=1)
 
     assert 8 in result["indices"]
     assert 9 not in result["indices"]
