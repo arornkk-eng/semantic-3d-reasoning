@@ -3944,6 +3944,120 @@
   stroke-width: 3px;
 }
 
+#segmentation-tool {
+  display: none;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+#segmentation-tool.active {
+  display: block;
+}
+#segmentation-tool.busy .segmentation-controls {
+  opacity: 0.75;
+}
+#segmentation-tool .segmentation-mask, #segmentation-tool .segmentation-markers {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+#segmentation-tool .semantic-masks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+#segmentation-tool .semantic-mask.category-cup {
+  filter: sepia(1) saturate(8) hue-rotate(85deg);
+}
+#segmentation-tool .semantic-mask.category-chair {
+  filter: sepia(1) saturate(8) hue-rotate(190deg);
+}
+#segmentation-tool .semantic-mask.category-bottle {
+  filter: sepia(1) saturate(8) hue-rotate(250deg);
+}
+#segmentation-tool .segmentation-mask {
+  display: none;
+  -o-object-fit: fill;
+     object-fit: fill;
+  opacity: 0.48;
+  filter: sepia(1) saturate(7) hue-rotate(72deg);
+}
+#segmentation-tool .segmentation-mask.visible {
+  display: block;
+}
+#segmentation-tool .segmentation-markers i {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px;
+  border: 2px solid white;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px black;
+}
+#segmentation-tool .segmentation-markers i.positive {
+  background: #16c784;
+}
+#segmentation-tool .segmentation-markers i.negative {
+  background: #ef4444;
+}
+#segmentation-tool .segmentation-controls {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(25, 25, 25, 0.94);
+  pointer-events: auto;
+  color: white;
+}
+#segmentation-tool .segmentation-controls button, #segmentation-tool .segmentation-controls input {
+  height: 28px;
+  border: 1px solid #555;
+  border-radius: 3px;
+  background: #333;
+  color: white;
+}
+#segmentation-tool .segmentation-controls button {
+  cursor: pointer;
+}
+#segmentation-tool .segmentation-controls button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+#segmentation-tool .segmentation-controls button.active, #segmentation-tool .segmentation-controls button.primary {
+  border-color: #ff7a18;
+  background: #8a3d08;
+}
+#segmentation-tool .segmentation-controls input {
+  width: 110px;
+  padding: 0 7px;
+  -webkit-user-select: text;
+     -moz-user-select: text;
+          user-select: text;
+}
+#segmentation-tool .segmentation-controls span {
+  min-width: 100px;
+  color: #ccc;
+}
+#segmentation-tool .segmentation-controls .semantic-list {
+  display: flex;
+  gap: 4px;
+}
+#segmentation-tool .segmentation-controls .semantic-list button {
+  opacity: 0.45;
+}
+#segmentation-tool .segmentation-controls .semantic-list button.selected {
+  opacity: 1;
+  border-color: #ff7a18;
+}
+
 * {
   font-size: 12px;
   -webkit-user-select: none;

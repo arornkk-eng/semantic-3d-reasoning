@@ -200,6 +200,7 @@ export default function App() {
         ZipSplat-Demo · 本地 AI 3D 重建 ·{" "}
         {health?.gpu_name ? `运行在 ${health.gpu_name}` : "加载中…"}
       </footer>
+
     </div>
   );
 }

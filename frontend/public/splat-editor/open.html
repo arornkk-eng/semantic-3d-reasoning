@@ -9,6 +9,8 @@
     var filename = params.get('filename') || 'scene.ply';
 
     if (contentUrl) {
+        // 编辑器按 URL 扩展名识别格式:无 .ply 后缀时补上(兼容 /api/ply/{id} 形式)
+        if (!/\.ply(\?|$)/i.test(contentUrl)) contentUrl = contentUrl.replace(/(\?.*)?$/, '.ply$1');
         // 编辑器原生支持 ?load= 参数，直接跳转
         var editorUrl = './index.html' +
             '?load=' + encodeURIComponent(contentUrl) +

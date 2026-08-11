@@ -14,6 +14,8 @@ from pathlib import Path
 
 import numpy as np
 
+from backend.core.config import SPLAT_SCALE_FACTOR
+
 _SH_C0 = 0.28209479177387814
 
 
@@ -34,11 +36,10 @@ def ply_to_splat(ply_path: Path, splat_path: Path) -> dict:
     y = vert["y"].astype(np.float32)
     z = vert["z"].astype(np.float32)
 
-    # 2. 尺度 (PLY 中为 log-scale，需 exp；然后乘以因子压缩高斯球大小 → 更锐利)
-    SCALE_FACTOR = 0.4  # < 1.0 = 更小更锐利的高斯球
-    scale_x = np.exp(vert["scale_0"].astype(np.float32)) * SCALE_FACTOR
-    scale_y = np.exp(vert["scale_1"].astype(np.float32)) * SCALE_FACTOR
-    scale_z = np.exp(vert["scale_2"].astype(np.float32)) * SCALE_FACTOR
+    # 2. 尺度。PLY 中为 log-scale，转换只做 exp，不改变模型几何。
+    scale_x = np.exp(vert["scale_0"].astype(np.float32)) * SPLAT_SCALE_FACTOR
+    scale_y = np.exp(vert["scale_1"].astype(np.float32)) * SPLAT_SCALE_FACTOR
+    scale_z = np.exp(vert["scale_2"].astype(np.float32)) * SPLAT_SCALE_FACTOR
 
     # 3. 颜色 — SH DC → RGB
     sh0_r = vert["f_dc_0"].astype(np.float32)
@@ -74,21 +75,25 @@ def ply_to_splat(ply_path: Path, splat_path: Path) -> dict:
             # scale (float32 × 3)
             f.write(struct.pack("<fff", scale_x[i], scale_y[i], scale_z[i]))
             # color (uint8 × 4, RGBA)
-            f.write(struct.pack(
-                "<BBBB",
-                int(np.clip(r[i] * 255, 0, 255)),
-                int(np.clip(g[i] * 255, 0, 255)),
-                int(np.clip(b[i] * 255, 0, 255)),
-                int(np.clip(alpha[i] * 255, 0, 255)),
-            ))
+            f.write(
+                struct.pack(
+                    "<BBBB",
+                    int(np.clip(r[i] * 255, 0, 255)),
+                    int(np.clip(g[i] * 255, 0, 255)),
+                    int(np.clip(b[i] * 255, 0, 255)),
+                    int(np.clip(alpha[i] * 255, 0, 255)),
+                )
+            )
             # rotation (uint8 × 4, wxyz, 编码 (val+1)*127.5)
-            f.write(struct.pack(
-                "<BBBB",
-                int(np.clip((rot_w[i] + 1.0) * 127.5, 0, 255)),
-                int(np.clip((rot_x[i] + 1.0) * 127.5, 0, 255)),
-                int(np.clip((rot_y[i] + 1.0) * 127.5, 0, 255)),
-                int(np.clip((rot_z[i] + 1.0) * 127.5, 0, 255)),
-            ))
+            f.write(
+                struct.pack(
+                    "<BBBB",
+                    int(np.clip((rot_w[i] + 1.0) * 127.5, 0, 255)),
+                    int(np.clip((rot_x[i] + 1.0) * 127.5, 0, 255)),
+                    int(np.clip((rot_y[i] + 1.0) * 127.5, 0, 255)),
+                    int(np.clip((rot_z[i] + 1.0) * 127.5, 0, 255)),
+                )
+            )
 
     ply_size = ply_path.stat().st_size
     splat_size = splat_path.stat().st_size

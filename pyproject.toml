@@ -1,0 +1,72 @@
+# =============================================================================
+# ZipSplat-Demo — Python 质量护栏配置
+# -----------------------------------------------------------------------------
+# 集中管理 ruff(格式+lint) / mypy(类型) / pytest(测试) 的工程配置。
+# 仅作用于 backend/ 代码；前端(TS)由各自 oxlint + tsc 负责。
+# =============================================================================
+
+[tool.ruff]
+# 目标 Python 版本（backend 使用 3.10+ 语法：X | None、内置泛型等）
+target-version = "py311"
+line-length = 100
+src = ["backend"]
+
+[tool.ruff.lint]
+# 务实的规则集：风格 + 正确性 + 现代化，不过度苛责
+select = [
+    "E",    # pycodestyle 错误
+    "F",    # pyflakes（未定义/未使用）
+    "I",    # isort 导入排序
+    "W",    # pycodestyle 警告
+    "UP",   # pyupgrade（现代化写法）
+    "B",    # flake8-bugbear（易错写法）
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff 自有规则
+]
+ignore = [
+    "E501",  # 行长度由 formatter 处理，不单独报
+    "B008",  # FastAPI 在路由装饰器里用函数作默认值，属正常用法
+    "RUF012", # 允许模块级可变常量（配置场景）
+    "RUF001", # 中文语境下注释/文档/日志中含 × → ≈ 等符号属正常，非歧义
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试文件放宽部分规则
+"backend/tests/*" = ["B", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# -----------------------------------------------------------------------------
+# mypy — 类型检查
+# 现状：后端大量使用 dict 返回与动态元数据，短期内无法一次性达标。
+# 策略：CI 中先以「报告模式」运行（不阻断合入），团队逐步收紧。
+# -----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+show_error_codes = true
+files = ["backend"]
+exclude = ["backend/tests/"]
+
+[[tool.mypy.overrides]]
+# 第三方库无类型 stub，整体忽略（含子模块）
+module = ["torch", "cv2", "plyfile", "zipsplat.*", "scipy.*", "sklearn.*", "pick_views"]
+ignore_missing_imports = true
+
+# -----------------------------------------------------------------------------
+# pytest — 测试
+# -----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["."]
+addopts = "-ra -q"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

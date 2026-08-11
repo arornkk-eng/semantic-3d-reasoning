@@ -1,0 +1,8 @@
+.claude
+.cursor
+.DS_Store
+.idea
+.npmrc
+.vscode
+dist
+node_modules

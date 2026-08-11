@@ -2,8 +2,8 @@
 POST /api/upload-video — 视频上传 + 智能帧提取端点。
 """
 
-import uuid
 import logging
+import uuid
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
@@ -16,7 +16,13 @@ from backend.core.config import (
     MAX_VIDEO_SIZE_BYTES,
 )
 from backend.core.queue_manager import TaskQueue
-from backend.storage.file_manager import create_task_meta, create_video_task_meta, save_uploads, save_videos
+from backend.core.schemas import UploadResponse, VideoUploadResponse
+from backend.storage.file_manager import (
+    create_task_meta,
+    create_video_task_meta,
+    save_uploads,
+    save_videos,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -27,7 +33,7 @@ def get_queue(request: Request) -> TaskQueue:
     return request.app.state.task_queue
 
 
-@router.post("/upload")
+@router.post("/upload", response_model=UploadResponse)
 async def upload_images(
     request: Request,
     files: list[UploadFile] = File(..., description="图片文件（多选）"),
@@ -35,7 +41,8 @@ async def upload_images(
 ):
     """上传多张图片，创建重建任务，返回 task_id。
 
-    限制：单文件 ≤ 50MB 总大小，格式限 jpg/png/bmp/webp，最多 50 张。
+    限制：单文件 ≤ 50MB 总大小，格式限 jpg/png/bmp/webp，最多 200 张
+    （超出目标视图数时，重建前自动筛选最优组合）。
     """
     # ---- 校验 mode ----
     if mode not in ("object", "scene"):
@@ -53,9 +60,11 @@ async def upload_images(
 
     # 校验扩展名 + 读取总大小
     total_size = 0
+    filenames: list[str] = []
     for f in files:
         if not f.filename:
             raise HTTPException(status_code=400, detail="文件名不能为空")
+        filenames.append(f.filename)
         ext = "." + f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
         if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(
@@ -76,7 +85,6 @@ async def upload_images(
 
     # ---- 保存 ----
     task_id = uuid.uuid4().hex[:12]  # 12 位短 ID，方便 URL 使用
-    filenames = [f.filename for f in files]
     save_uploads(task_id, files)
     create_task_meta(task_id, filenames, mode=mode)
 
@@ -94,7 +102,7 @@ async def upload_images(
     }
 
 
-@router.post("/upload-video")
+@router.post("/upload-video", response_model=VideoUploadResponse)
 async def upload_videos(
     request: Request,
     videos: list[UploadFile] = File(..., description="MP4 视频文件（多选）"),
@@ -123,9 +131,11 @@ async def upload_videos(
 
     # ---- 校验扩展名 + 大小 ----
     total_size = 0
+    video_filenames: list[str] = []
     for f in videos:
         if not f.filename:
             raise HTTPException(status_code=400, detail="文件名不能为空")
+        video_filenames.append(f.filename)
         ext = "." + f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
         if ext not in ALLOWED_VIDEO_EXTENSIONS:
             raise HTTPException(
@@ -140,7 +150,7 @@ async def upload_videos(
             raise HTTPException(
                 status_code=413,
                 detail=f"单段视频 {f.filename} 大小 {size / 1024 / 1024:.1f} MB 超出限制"
-                        f"（{MAX_VIDEO_SIZE_BYTES / 1024 / 1024:.0f} MB）",
+                f"（{MAX_VIDEO_SIZE_BYTES / 1024 / 1024:.0f} MB）",
             )
 
     # ---- 校验参数 ----
@@ -151,7 +161,6 @@ async def upload_videos(
 
     # ---- 保存视频 ----
     task_id = uuid.uuid4().hex[:12]
-    video_filenames = [f.filename for f in videos]
     save_videos(task_id, videos)
     create_video_task_meta(
         task_id,

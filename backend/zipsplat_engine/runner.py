@@ -5,9 +5,15 @@ torch 和 zipsplat 在函数内懒加载，避免服务器启动时占用 GPU �
 
 import logging
 import sys
-from pathlib import Path
 
-from backend.core.config import OUTPUT_DIR, PROJECT_ROOT, UPLOAD_DIR
+from backend.core.config import (
+    DEFAULT_NUM_VIEWS,
+    OUTPUT_DIR,
+    PROJECT_ROOT,
+    SCENE_ALPHA_THRESHOLD,
+    SCENE_OUTLIER_PERCENTILE,
+    UPLOAD_DIR,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,13 +22,18 @@ if str(_ZIPSPLAT_ROOT) not in sys.path:
     sys.path.insert(0, str(_ZIPSPLAT_ROOT))
 
 
-def run_reconstruction(task_id: str, mode: str = "object") -> dict:
+def run_reconstruction(
+    task_id: str, mode: str = "object", num_views: int = DEFAULT_NUM_VIEWS
+) -> dict:
     """执行 ZipSplat 3D 重建：图片 → 高斯模型 → PLY。
 
     Args:
         task_id: 任务 ID
         mode: 重建模式 — \"object\"（物体模式，DBSCAN 剔除背景）
               \"scene\"（场景模式，保留全部高斯球）
+        num_views: 自动视图选择目标数。输入图片超过该数时，先自动挑出
+             最优组合（质量过滤 + SfM 位姿贪心/CLIP 回退）再重建；
+             设为 0 跳过选择。
     """
     import torch
     from zipsplat import ZipSplat, load_image
@@ -39,12 +50,45 @@ def run_reconstruction(task_id: str, mode: str = "object") -> dict:
     if not image_paths:
         raise FileNotFoundError(f"输入目录无图片: {input_dir}")
 
+    # ---- 自动视图选择:输入过多时挑出最优组合 ----
+    view_sel = None
+    if num_views > 0 and len(image_paths) > num_views:
+        _sys = __import__("sys")
+        script_dir = PROJECT_ROOT / "ZipSplat-Demo" / "scripts"
+        if str(script_dir) not in _sys.path:
+            _sys.path.insert(0, str(script_dir))
+        from pick_views import select_best_views
+
+        logger.info(f"任务 {task_id}: 输入 {len(image_paths)} 张 > {num_views}, 自动视图选择中...")
+        try:
+            sel = select_best_views(input_dir, num=num_views)
+            chosen = sel["chosen"]
+            if chosen:
+                chosen_set = set(chosen)
+                image_paths = [p for p in image_paths if p.name in chosen_set]
+                view_sel = {
+                    "method": sel["method"],
+                    "total": sel["total"],
+                    "passed": sel["passed"],
+                    "registered": sel["registered"],
+                    "selected": len(image_paths),
+                }
+                logger.info(
+                    f"任务 {task_id}: 视图选择({sel['method']}) "
+                    f"{sel['total']}→{sel['passed']}→{len(image_paths)} 张, "
+                    f"SfM 注册 {sel['registered']}/{sel['passed']}"
+                )
+        except Exception as e:
+            logger.warning(f"任务 {task_id}: 视图选择失败({e}), 回退使用全部 {len(image_paths)} 张")
+
     logger.info(f"任务 {task_id}: {len(image_paths)} 张图片")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device == "cuda":
-        logger.info(f"GPU: {torch.cuda.get_device_name(0)}, "
-                     f"显存: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+        logger.info(
+            f"GPU: {torch.cuda.get_device_name(0)}, "
+            f"显存: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB"
+        )
 
     model = ZipSplat(weights="zipsplat").to(device).eval()
     images = [load_image(p) for p in image_paths]
@@ -62,42 +106,40 @@ def run_reconstruction(task_id: str, mode: str = "object") -> dict:
     _SH_C0 = 0.28209479177387814
 
     # 1) 诊断：打印原始 DC 颜色统计
-    dc = gaussians.sh0.squeeze(-2)                          # (N, 3)
-    rgb_raw = (dc * _SH_C0 + 0.5).clamp(0, 1)               # SH → RGB
+    dc = gaussians.sh0.squeeze(-2)  # (N, 3)
+    rgb_raw = (dc * _SH_C0 + 0.5).clamp(0, 1)  # SH → RGB
     logger.info(
-        f"原始 DC 颜色 — R: {rgb_raw[:,0].mean():.3f}  "
-        f"G: {rgb_raw[:,1].mean():.3f}  "
-        f"B: {rgb_raw[:,2].mean():.3f}  "
+        f"原始 DC 颜色 — R: {rgb_raw[:, 0].mean():.3f}  "
+        f"G: {rgb_raw[:, 1].mean():.3f}  "
+        f"B: {rgb_raw[:, 2].mean():.3f}  "
         f"(≈{rgb_raw.mean():.3f})"
     )
 
     # 2) 饱和度修正：温和提升（1.2×），不改亮度
     SAT_BOOST = 1.2
     lum = 0.299 * rgb_raw[:, 0] + 0.587 * rgb_raw[:, 1] + 0.114 * rgb_raw[:, 2]
-    rgb_sat = torch.stack([
-        lum + SAT_BOOST * (rgb_raw[:, 0] - lum),
-        lum + SAT_BOOST * (rgb_raw[:, 1] - lum),
-        lum + SAT_BOOST * (rgb_raw[:, 2] - lum),
-    ], dim=-1).clamp(0, 1)
+    rgb_sat = torch.stack(
+        [
+            lum + SAT_BOOST * (rgb_raw[:, 0] - lum),
+            lum + SAT_BOOST * (rgb_raw[:, 1] - lum),
+            lum + SAT_BOOST * (rgb_raw[:, 2] - lum),
+        ],
+        dim=-1,
+    ).clamp(0, 1)
     gaussians.sh0.copy_(((rgb_sat - 0.5) / _SH_C0).unsqueeze(-2))
 
-    # 3) SH1 → 保留全部方向感（恢复视角相关高光和材质真实感）
-    # 不再衰减 SH1，保留模型原始预测值
+    # 3) SH1 → 保留全部方向感
     logger.info(f"SH1 全保留 — mean: {gaussians.shN.mean():.4f}, std: {gaussians.shN.std():.4f}")
 
-    # 4) 不透明度：只 clamp，不 boost（boost 是白色的根因）
+    # 4) 不透明度：只 clamp，不 boost
     gaussians.opacities.clamp_(0, 1)
     logger.info(
-        f"不透明度 — mean: {gaussians.opacities.mean():.4f}, "
-        f"max: {gaussians.opacities.max():.4f}"
+        f"不透明度 — mean: {gaussians.opacities.mean():.4f}, max: {gaussians.opacities.max():.4f}"
     )
     logger.info("颜色后处理完成")
 
     # ---- 后处理：去噪 ----
-    if mode == "object":
-        gaussians = _filter_background(gaussians)
-    else:
-        gaussians = _cleanup_scene(gaussians)
+    gaussians = _filter_background(gaussians) if mode == "object" else _cleanup_scene(gaussians)
     num_gs_clean = gaussians.num_gaussians
 
     ply_path = output_dir / "scene.ply"
@@ -107,13 +149,16 @@ def run_reconstruction(task_id: str, mode: str = "object") -> dict:
 
     # 保存高斯球参数（供位姿估算 + 特征投影使用）
     params_path = output_dir / "gaussians.pt"
-    torch.save({
-        "means": gaussians.means.detach().cpu(),
-        "scales": gaussians.scales.detach().cpu(),
-        "quats": gaussians.quats.detach().cpu(),
-        "opacities": gaussians.opacities.detach().cpu(),
-        "sh_coeffs": gaussians.sh_coeffs.detach().cpu(),
-    }, params_path)
+    torch.save(
+        {
+            "means": gaussians.means.detach().cpu(),
+            "scales": gaussians.scales.detach().cpu(),
+            "quats": gaussians.quats.detach().cpu(),
+            "opacities": gaussians.opacities.detach().cpu(),
+            "sh_coeffs": gaussians.sh_coeffs.detach().cpu(),
+        },
+        params_path,
+    )
     logger.info(f"高斯参数已保存: {params_path}")
 
     del model, gaussians, images
@@ -123,10 +168,15 @@ def run_reconstruction(task_id: str, mode: str = "object") -> dict:
     return {
         "num_gaussians": num_gs_clean,
         "ply_size": ply_size,
+        "view_selection": view_sel,
     }
 
 
-def _cleanup_scene(gaussians, alpha_threshold=0.02, percentile=5):
+def _cleanup_scene(
+    gaussians,
+    alpha_threshold=SCENE_ALPHA_THRESHOLD,
+    percentile=SCENE_OUTLIER_PERCENTILE,
+):
     """场景模式轻量去噪：仅剔除极低透明度 + 空间分布的尾部离群点。
 
     只删最明显的漂浮碎片，不碰墙体/地面等大面积表面。
@@ -160,7 +210,7 @@ def _cleanup_scene(gaussians, alpha_threshold=0.02, percentile=5):
     nn_dist = dists[:, 1]  # 到最近邻的距离
 
     # 用高分位数做阈值：只删最远端的 percentile% 孤立法
-    # percentile=5 → 删最近的 5%（真正的碎片），保留 95%
+    # 默认只删最远的 1%，降低合法边缘结构被误删的风险。
     cutoff = float(np.percentile(nn_dist, 100 - percentile))
     keep_local = nn_dist <= cutoff
 
@@ -181,6 +231,7 @@ def _cleanup_scene(gaussians, alpha_threshold=0.02, percentile=5):
         return gaussians
 
     from zipsplat.gaussians import Gaussians
+
     gaussians = Gaussians.from_parameters(
         means=gaussians.means[final_mask],
         scales=gaussians.scales[final_mask],
@@ -209,9 +260,8 @@ def _filter_background(gaussians, alpha_threshold=0.05, eps_ratio=0.03, min_samp
         过滤后的 Gaussians 对象
     """
     import numpy as np
-    from sklearn.cluster import DBSCAN
-
     import torch
+    from sklearn.cluster import DBSCAN
 
     n_before = gaussians.num_gaussians
 
@@ -249,9 +299,7 @@ def _filter_background(gaussians, alpha_threshold=0.05, eps_ratio=0.03, min_samp
     bbox_max = means_for_cluster.max(axis=0)
     scene_diag = float(np.linalg.norm(bbox_max - bbox_min))
     eps = scene_diag * eps_ratio
-    logger.info(
-        f"场景范围: {scene_diag:.2f}, eps={eps:.3f}, min_samples={min_samples}"
-    )
+    logger.info(f"场景范围: {scene_diag:.2f}, eps={eps:.3f}, min_samples={min_samples}")
 
     clustering = DBSCAN(eps=eps, min_samples=min_samples, n_jobs=1).fit(means_for_cluster)
     cluster_labels = clustering.labels_  # (M_sample,)  -1=噪声, 0/1/2...=簇编号
@@ -274,8 +322,7 @@ def _filter_background(gaussians, alpha_threshold=0.05, eps_ratio=0.03, min_samp
         top_sizes = counts[sorted_idx[:top_k]]
         top_in_cluster = np.isin(cluster_labels, top_labels)
         logger.info(
-            f"保留前 {top_k} 大簇: {top_sizes.tolist()}, "
-            f"合计 {top_in_cluster.sum():,} 个高斯球"
+            f"保留前 {top_k} 大簇: {top_sizes.tolist()}, 合计 {top_in_cluster.sum():,} 个高斯球"
         )
 
         # 将聚类结果映射回 means_filtered 的空间
@@ -284,6 +331,7 @@ def _filter_background(gaussians, alpha_threshold=0.05, eps_ratio=0.03, min_samp
             mask_cluster = np.zeros(len(means_filtered), dtype=bool)
             # 对每个全量点，找最近的采样点，继承其簇标签
             from scipy.spatial import cKDTree
+
             tree = cKDTree(means_for_cluster)
             _, nn_idx = tree.query(means_filtered, k=1, workers=1)
             mask_cluster = top_in_cluster[nn_idx]

@@ -1,0 +1,18 @@
+# Web API
+fastapi>=0.139,<0.140
+uvicorn[standard]>=0.51,<0.52
+pydantic>=2.13,<3
+python-multipart>=0.0.32,<0.1
+
+# Image, geometry and export pipeline
+numpy>=2.0,<3
+scipy>=1.15,<2
+scikit-learn>=1.6,<2
+opencv-python-headless>=4.10,<6
+plyfile>=1.1,<2
+pycolmap==4.1.1
+
+# Bundled ZipSplat inference package and its declared dependencies
+-e ./ZipSplat-main
+
+# SAM 2 is installed separately from official source; see README.md.

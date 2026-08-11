@@ -2,28 +2,29 @@
 
 import json
 import shutil
-import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 from fastapi import UploadFile
 
-from backend.core.config import UPLOAD_DIR, TASK_DIR, OUTPUT_DIR
+from backend.core.config import OUTPUT_DIR, TASK_DIR, UPLOAD_DIR
 
 
 def _tz_now() -> str:
     """返回 ISO8601 格式的 UTC 时间字符串。"""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 # ---- 上传 ----
+
 
 def save_uploads(task_id: str, files: list[UploadFile]) -> Path:
     """将上传的文件保存到 data/uploads/{task_id}/，返回保存目录。"""
     upload_dir = UPLOAD_DIR / task_id
     upload_dir.mkdir(parents=True, exist_ok=True)
     for f in files:
+        if f.filename is None:
+            raise ValueError("上传文件缺少 filename，无法保存")
         file_path = upload_dir / f.filename
         with open(file_path, "wb") as out:
             f.file.seek(0)
@@ -36,6 +37,8 @@ def save_videos(task_id: str, files: list[UploadFile]) -> Path:
     video_dir = UPLOAD_DIR / task_id / "videos"
     video_dir.mkdir(parents=True, exist_ok=True)
     for f in files:
+        if f.filename is None:
+            raise ValueError("上传视频缺少 filename，无法保存")
         file_path = video_dir / f.filename
         with open(file_path, "wb") as out:
             f.file.seek(0)
@@ -44,6 +47,7 @@ def save_videos(task_id: str, files: list[UploadFile]) -> Path:
 
 
 # ---- 任务元数据 ----
+
 
 def list_all_task_ids() -> list[str]:
     """列出服务端所有已知任务 ID。"""
@@ -59,7 +63,7 @@ def list_all_task_ids() -> list[str]:
     return sorted(ids, reverse=True)
 
 
-def get_task_meta(task_id: str) -> Optional[dict]:
+def get_task_meta(task_id: str) -> dict | None:
     """读取任务元数据，不存在则返回 None。"""
     meta_path = TASK_DIR / f"{task_id}.json"
     if not meta_path.exists():
@@ -157,6 +161,7 @@ def list_all_task_metas() -> list[dict]:
 
 # ---- 输出 ----
 
+
 def get_output_dir(task_id: str) -> Path:
     """返回任务输出目录路径。"""
     return OUTPUT_DIR / task_id
@@ -170,15 +175,17 @@ def list_outputs(task_id: str) -> list[dict]:
     files = []
     for p in sorted(output_dir.iterdir()):
         if p.is_file():
-            files.append({
-                "name": p.name,
-                "size": p.stat().st_size,
-                "url": f"/api/result/{task_id}/{p.name}",
-            })
+            files.append(
+                {
+                    "name": p.name,
+                    "size": p.stat().st_size,
+                    "url": f"/api/result/{task_id}/{p.name}",
+                }
+            )
     return files
 
 
-def get_output_path(task_id: str, filename: str) -> Optional[Path]:
+def get_output_path(task_id: str, filename: str) -> Path | None:
     """返回输出文件的完整路径，不存在则返回 None。"""
     p = OUTPUT_DIR / task_id / filename
     # 安全检查：防止路径穿越
@@ -189,6 +196,7 @@ def get_output_path(task_id: str, filename: str) -> Optional[Path]:
 
 
 # ---- 清理 ----
+
 
 def cleanup_uploads(task_id: str) -> None:
     """删除任务的上传文件。"""

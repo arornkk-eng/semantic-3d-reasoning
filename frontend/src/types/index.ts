@@ -52,6 +52,8 @@ export interface TaskMeta {
   output: TaskOutput | null;
   error: string | null;
   video_config?: { max_frames: number; sample_interval: number };
+  /** 视频抽帧结果(视频任务重建完成后写入) */
+  video_result?: { selected: number };
 }
 
 export interface OutputFile {
@@ -71,71 +73,5 @@ export interface ResultResponse {
 export interface TaskHistoryEntry {
   task_id: string;
   created_at: string;
-}
-
-// ---- 物体识别类型 ----
-
-export interface RecognizeRequest {
-  objects: string[];
-  box_threshold?: number;
-  use_clip?: boolean;   // CLIP 语义验证（默认 true）
-  use_sam?: boolean;    // SAM 精确分割（默认 true）
-}
-
-export interface ObjectLabel {
-  count: number;
-  score: number;
-}
-
-export interface RecognizeResponse {
-  task_id: string;
-  status: string;
-  labels: Record<string, ObjectLabel>;
-}
-
-export interface ObjectLabelDetail {
-  count: number;
-  score: number;
-  center_3d?: number[];
-  bbox_3d?: { min: number[]; max: number[] };
-}
-
-export interface LabelsResponse {
-  task_id: string;
-  objects: Record<string, ObjectLabelDetail>;
-}
-
-// ---- 3D 自监督发现类型 ----
-
-export interface DiscoverRequest {
-  n_clusters?: number;
-  n_samples?: number;
-  pos_weight?: number;
-  col_weight?: number;
-  min_cluster_size?: number;
-}
-
-export interface ClusterInfo {
-  cluster_id: number;
-  count: number;
-  ratio: number;
-  center_3d: number[];
-  bbox_3d: { min: number[]; max: number[] };
-  dominant_color_rgb: number[];
-}
-
-export interface DiscoverResponse {
-  task_id: string;
-  status: string;
-  n_clusters_found: number;
-  clusters: ClusterInfo[];
-}
-
-export interface ClustersResponse {
-  task_id: string;
-  method?: string;
-  n_clusters_found: number;
-  total_vertices: number;
-  clusters: ClusterInfo[];
 }
 

@@ -3,7 +3,6 @@
 import logging
 import queue
 import threading
-from typing import Optional
 
 from backend.core.config import TASK_DIR
 from backend.storage.file_manager import get_task_meta, list_all_task_metas, save_task_meta
@@ -24,7 +23,7 @@ class TaskQueue:
         self._queue.put(task_id)
         logger.info(f"任务入队: {task_id}, 当前队列长度: {self._queue.qsize()}")
 
-    def dequeue(self, timeout: float = 1.0) -> Optional[str]:
+    def dequeue(self, timeout: float = 1.0) -> str | None:
         """阻塞地从队列取出一个任务。跳过已取消的任务。超时返回 None。"""
         while True:
             try:

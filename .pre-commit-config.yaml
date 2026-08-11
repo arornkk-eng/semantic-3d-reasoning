@@ -1,0 +1,23 @@
+# =============================================================================
+# pre-commit 质量护栏
+# 安装：pip install pre-commit && pre-commit install
+# 说明：mypy 依赖完整项目依赖（torch/cv2），放在 CI 中统一跑；
+#       这里只做不依赖重型环境的快速检查。
+# =============================================================================
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]

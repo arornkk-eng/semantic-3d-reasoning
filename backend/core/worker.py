@@ -9,6 +9,7 @@ import multiprocessing
 import threading
 import traceback
 
+from backend.core.gpu_coordinator import finish_reconstruction, try_begin_reconstruction
 from backend.core.queue_manager import TaskQueue
 from backend.storage.file_manager import get_task_meta, save_task_meta
 
@@ -73,6 +74,7 @@ def cancel_current(task_id: str) -> bool:
 
 # ---- 内部实现 ----
 
+
 def _worker_loop(queue: TaskQueue) -> None:
     """Worker 主循环：取任务 → 子进程执行 → 更新状态。"""
     global _current_task_id, _current_proc, _cancel_flag
@@ -82,18 +84,23 @@ def _worker_loop(queue: TaskQueue) -> None:
         if task_id is None:
             continue  # 队列空闲
 
+        if not try_begin_reconstruction():
+            queue.enqueue(task_id)
+            threading.Event().wait(0.5)
+            continue
+
         logger.info(f"开始处理任务: {task_id}")
 
         # 1. 更新状态为 running + 时间预估
         meta = get_task_meta(task_id)
         if meta is None:
             logger.error(f"任务不存在: {task_id}")
+            finish_reconstruction()
             continue
         meta["status"] = "running"
         meta["started_at"] = meta.get("updated_at", "")  # worker 开始处理的时间
         # 预估耗时：图片任务 ~2min，视频任务 ~6min
         is_video = meta.get("type") == "video"
-        frame_count = meta.get("video_config", {}).get("max_frames", 25) if is_video else meta.get("input", {}).get("file_count", 10)
         meta["estimated_seconds"] = 300 if is_video else 120  # 25帧≈5分钟
         meta["stage"] = "extracting" if is_video else "reconstructing"
         meta["progress_pct"] = 0
@@ -130,8 +137,10 @@ def _worker_loop(queue: TaskQueue) -> None:
             if meta is None:
                 logger.error(f"任务元数据丢失: {task_id}")
             elif meta["status"] == "completed":
-                logger.info(f"任务完成: {task_id}, "
-                            f"高斯球: {meta.get('output', {}).get('num_gaussians', '?')}")
+                logger.info(
+                    f"任务完成: {task_id}, "
+                    f"高斯球: {meta.get('output', {}).get('num_gaussians', '?')}"
+                )
             elif meta["status"] == "failed":
                 logger.error(f"任务失败: {task_id}, 错误: {meta.get('error', '?')[:120]}")
             else:
@@ -144,6 +153,7 @@ def _worker_loop(queue: TaskQueue) -> None:
         with _lock:
             _current_task_id = None
             _current_proc = None
+        finish_reconstruction()
 
 
 def _run_in_subprocess(task_id: str) -> None:
@@ -161,16 +171,19 @@ def _run_in_subprocess(task_id: str) -> None:
     sub_logger = logging.getLogger(__name__)
 
     try:
+        from backend.storage.file_manager import get_task_meta as _get
+        from backend.storage.file_manager import save_task_meta as _save
         from backend.zipsplat_engine.runner import run_reconstruction
-        from backend.storage.file_manager import get_task_meta as _get, save_task_meta as _save
 
         meta = _get(task_id)
+        if meta is None:
+            sub_logger.error(f"任务元数据缺失，无法继续: {task_id}")
+            return
         mode = meta.get("mode", "object") if meta else "object"
         task_type = meta.get("type", "image") if meta else "image"
 
         # ---- 视频任务：先提取帧 ----
         if task_type == "video":
-            from pathlib import Path
             from backend.core.config import UPLOAD_DIR
             from backend.video_processor.extractor import extract_and_select
 
@@ -232,6 +245,8 @@ def _run_in_subprocess(task_id: str) -> None:
                 "ply_size": result["ply_size"],
                 "num_gaussians": result["num_gaussians"],
             }
+            if result.get("view_selection"):
+                meta["view_selection"] = result["view_selection"]
             meta["error"] = None
             _save(task_id, meta)
             sub_logger.info(f"重建成功: {task_id}, 高斯球={result['num_gaussians']:,}")
@@ -240,7 +255,8 @@ def _run_in_subprocess(task_id: str) -> None:
         sub_logger.error(f"重建失败: {task_id}, 错误: {e}")
 
         try:
-            from backend.storage.file_manager import get_task_meta as _get, save_task_meta as _save
+            from backend.storage.file_manager import get_task_meta as _get
+            from backend.storage.file_manager import save_task_meta as _save
 
             tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
             meta = _get(task_id)

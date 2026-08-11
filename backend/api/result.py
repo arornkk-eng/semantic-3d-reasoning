@@ -44,8 +44,12 @@ async def download_file(task_id: str, filename: str):
 
     media_type = "application/octet-stream" if filename.endswith(".ply") else None
 
-    return FileResponse(
+    resp = FileResponse(
         path=str(file_path),
         filename=filename,
         media_type=media_type,
     )
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp

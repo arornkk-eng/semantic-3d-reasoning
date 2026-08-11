@@ -1,33 +1,40 @@
-# Python
-venv/
+# ===================== Python / 工具链缓存 =====================
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.egg-info/
-dist/
-build/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
-# Node / Frontend
-frontend/node_modules/
-frontend/dist/
+# ===================== 虚拟环境 =====================
+venv/
+.venv/
 
-# Runtime data (user uploads, tasks, output)
+# ===================== 运行时数据（自动生成，不入库） =====================
 data/
+results/
 
-# IDE
-.vscode/
+# 评估报告保留，体积较大的可再生产物不入库
+evaluation/**/*.ply
+evaluation/**/*.splat
+evaluation/**/gaussians.pt
+evaluation/**/raw_gaussians.pt
+
+# ===================== 编辑器 / OS =====================
 .idea/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Official ZipSplat source (clone separately)
-ZipSplat-main/
-
-# Claude Code config
+.vscode/
 .claude/
+.workbuddy/
+.DS_Store
 
-# Temp
-*.tmp
-*.log
+# ===================== 密钥 / 本地配置 =====================
+.env
+
+# ===================== 模型权重 =====================
+models/
+
+# ===================== 外部项目生成物与示例资产 =====================
+supersplat-editor/node_modules/
+supersplat-editor/dist/
+ZipSplat-main/assets/
+third_party/sam2/

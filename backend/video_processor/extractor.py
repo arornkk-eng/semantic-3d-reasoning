@@ -6,7 +6,6 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -27,6 +26,7 @@ def _get_orb():
 # ================================================================
 # 公开 API
 # ================================================================
+
 
 def extract_and_select(
     video_paths: list[Path],
@@ -59,7 +59,7 @@ def extract_and_select(
             continue
         frames = _extract_frames(vp, vid_idx, sample_interval)
         total_extracted += len(frames)
-        logger.info(f"视频 {vid_idx+1}/{len(video_paths)} ({vp.name}): 提取 {len(frames)} 帧")
+        logger.info(f"视频 {vid_idx + 1}/{len(video_paths)} ({vp.name}): 提取 {len(frames)} 帧")
 
         # ---- Step 2: 质量评分 ----
         for f in frames:
@@ -76,8 +76,12 @@ def extract_and_select(
 
     if not all_frames:
         logger.warning("无帧通过质量筛选，降低阈值重试")
-        return {"total_extracted": total_extracted, "quality_passed": 0,
-                "selected": 0, "frame_paths": []}
+        return {
+            "total_extracted": total_extracted,
+            "quality_passed": 0,
+            "selected": 0,
+            "frame_paths": [],
+        }
 
     # ---- Step 3: 视角多样性筛选 ----
     if len(all_frames) <= max_frames:
@@ -90,7 +94,7 @@ def extract_and_select(
     # ---- Step 4: 保存选中帧 (imencode 兼容非 ASCII 路径) ----
     saved = []
     for i, f in enumerate(selected):
-        filename = f"frame_{i+1:04d}_v{f['video_idx']}_t{f['timestamp']:.1f}s.jpg"
+        filename = f"frame_{i + 1:04d}_v{f['video_idx']}_t{f['timestamp']:.1f}s.jpg"
         out_path = output_dir / filename
         # imencode + tofile 比 imwrite 更好地处理 Windows Unicode 路径
         success, encoded = cv2.imencode(".jpg", f["image"], [cv2.IMWRITE_JPEG_QUALITY, 92])
@@ -111,6 +115,7 @@ def extract_and_select(
 # ================================================================
 # 内部实现
 # ================================================================
+
 
 def _extract_frames(video_path: Path, video_idx: int, interval_sec: float) -> list[dict]:
     """从单个视频按间隔提取帧，返回 [{image, timestamp, video_idx}]。"""
@@ -136,17 +141,21 @@ def _extract_frames(video_path: Path, video_idx: int, interval_sec: float) -> li
 
         if frame_idx % frame_interval == 0:
             timestamp = frame_idx / fps
-            frames.append({
-                "image": frame,
-                "timestamp": round(timestamp, 1),
-                "video_idx": video_idx,
-            })
+            frames.append(
+                {
+                    "image": frame,
+                    "timestamp": round(timestamp, 1),
+                    "video_idx": video_idx,
+                }
+            )
 
         frame_idx += 1
 
     cap.release()
-    logger.debug(f"  提取 {len(frames)}/{total_frames} 帧 @ {fps:.1f}fps, "
-                 f"间隔 {frame_interval} 帧 ({interval_sec}s), 时长 {duration:.1f}s")
+    logger.debug(
+        f"  提取 {len(frames)}/{total_frames} 帧 @ {fps:.1f}fps, "
+        f"间隔 {frame_interval} 帧 ({interval_sec}s), 时长 {duration:.1f}s"
+    )
     return frames
 
 
@@ -189,7 +198,7 @@ def _diversity_select(frames: list[dict], max_frames: int) -> list[dict]:
     2. 每段视频内按时序分段，每段选质量最高的帧
     3. 确保所有视角均匀覆盖
     """
-    n_videos = len(set(f["video_idx"] for f in frames))
+    n_videos = len({f["video_idx"] for f in frames})
     frames_per_video = max(1, max_frames // n_videos)
 
     # 按视频分组
@@ -214,12 +223,16 @@ def _diversity_select(frames: list[dict], max_frames: int) -> list[dict]:
                 end = int((seg_i + 1) * seg_size)
                 if start >= len(vid_frames):
                     break
-                seg_frames = vid_frames[start:max(start + 1, end)]
+                seg_frames = vid_frames[start : max(start + 1, end)]
                 # 段内选质量最高
                 best = max(seg_frames, key=lambda f: f.get("quality", 0))
                 selected.append(best)
 
-        logger.info(f"  视频 {vid_idx}: {len(vid_frames)} → {min(len(vid_frames), frames_per_video)} 帧")
+        logger.info(
+            f"  视频 {vid_idx}: {len(vid_frames)} → {min(len(vid_frames), frames_per_video)} 帧"
+        )
 
-    logger.info(f"均衡选择完成: {len(frames)} → {len(selected)} 帧 ({n_videos} 段视频 × ~{frames_per_video})")
+    logger.info(
+        f"均衡选择完成: {len(frames)} → {len(selected)} 帧 ({n_videos} 段视频 × ~{frames_per_video})"
+    )
     return selected

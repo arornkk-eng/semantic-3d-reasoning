@@ -1,0 +1,74 @@
+#segmentation-tool {
+    display: none;
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 20;
+
+    &.active { display: block; }
+    &.busy .segmentation-controls { opacity: 0.75; }
+
+    .segmentation-mask, .segmentation-markers {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+    }
+
+    .semantic-masks { position: absolute; inset: 0; pointer-events: none; }
+    .semantic-mask.category-cup { filter: sepia(1) saturate(8) hue-rotate(85deg); }
+    .semantic-mask.category-chair { filter: sepia(1) saturate(8) hue-rotate(190deg); }
+    .semantic-mask.category-bottle { filter: sepia(1) saturate(8) hue-rotate(250deg); }
+
+    .segmentation-mask {
+        display: none;
+        object-fit: fill;
+        opacity: 0.48;
+        filter: sepia(1) saturate(7) hue-rotate(72deg);
+        &.visible { display: block; }
+    }
+
+    .segmentation-markers i {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        margin: -7px;
+        border: 2px solid white;
+        border-radius: 50%;
+        box-shadow: 0 1px 4px black;
+        &.positive { background: #16c784; }
+        &.negative { background: #ef4444; }
+    }
+
+    .segmentation-controls {
+        position: absolute;
+        left: 50%;
+        top: 14px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        padding: 8px;
+        border-radius: 6px;
+        background: rgba(25, 25, 25, 0.94);
+        pointer-events: auto;
+        color: white;
+
+        button, input {
+            height: 28px;
+            border: 1px solid #555;
+            border-radius: 3px;
+            background: #333;
+            color: white;
+        }
+        button { cursor: pointer; }
+        button:disabled { cursor: wait; opacity: 0.55; }
+        button.active, button.primary { border-color: #ff7a18; background: #8a3d08; }
+        input { width: 110px; padding: 0 7px; user-select: text; }
+        span { min-width: 100px; color: #ccc; }
+        .semantic-list { display: flex; gap: 4px; }
+        .semantic-list button { opacity: 0.45; }
+        .semantic-list button.selected { opacity: 1; border-color: #ff7a18; }
+    }
+}
