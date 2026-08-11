@@ -11,10 +11,6 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 from PIL import Image, UnidentifiedImageError
-from torchvision.models.detection import (
-    MaskRCNN_ResNet50_FPN_V2_Weights,
-    maskrcnn_resnet50_fpn_v2,
-)
 
 from backend.core.config import LAYER_DIR, MAX_SEGMENTATION_IMAGE_BYTES, MAX_SEGMENTATION_IMAGE_SIDE
 from backend.core.gpu_coordinator import finish_segmentation, try_begin_segmentation
@@ -278,6 +274,11 @@ class SemanticSegmentationService:
                     preview_dir = LAYER_DIR / task_id
                     preview_dir.mkdir(parents=True, exist_ok=True)
                     image.save(preview_dir / "latest_semantic_view.png", format="PNG")
+
+                from torchvision.models.detection import (
+                    MaskRCNN_ResNet50_FPN_V2_Weights,
+                    maskrcnn_resnet50_fpn_v2,
+                )
 
                 weights = MaskRCNN_ResNet50_FPN_V2_Weights.DEFAULT
                 categories = weights.meta["categories"]
