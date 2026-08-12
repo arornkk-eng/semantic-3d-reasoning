@@ -221,23 +221,31 @@ class Picker {
         this.renderPass.render();
     }
 
-    async readDepthMap(): Promise<Float32Array> {
-        if (!this.depthRenderTarget) return new Float32Array();
+    async readDepthData(): Promise<{ depth: Float32Array; coverage: Float32Array }> {
+        if (!this.depthRenderTarget) {
+            return { depth: new Float32Array(), coverage: new Float32Array() };
+        }
         const rt = this.depthRenderTarget;
         const pixels = await rt.colorBuffer.read(0, 0, rt.width, rt.height, { renderTarget: rt }) as Uint16Array;
-        const result = new Float32Array(rt.width * rt.height);
-        result.fill(Number.NaN);
+        const depth = new Float32Array(rt.width * rt.height);
+        const coverage = new Float32Array(rt.width * rt.height);
+        depth.fill(Number.NaN);
         for (let y = 0; y < rt.height; y++) {
             const sourceY = this.device.isWebGL2 ? rt.height - y - 1 : y;
             for (let x = 0; x < rt.width; x++) {
                 const source = (sourceY * rt.width + x) * 4;
                 const alpha = 1 - half2Float(pixels[source + 3]);
+                coverage[y * rt.width + x] = Math.min(1, Math.max(0, alpha));
                 if (alpha >= 0.05) {
-                    result[y * rt.width + x] = half2Float(pixels[source]) / alpha;
+                    depth[y * rt.width + x] = half2Float(pixels[source]) / alpha;
                 }
             }
         }
-        return result;
+        return { depth, coverage };
+    }
+
+    async readDepthMap(): Promise<Float32Array> {
+        return (await this.readDepthData()).depth;
     }
 
     // Read normalized depth (0-1) at normalized screen position (0-1 range) (after prepareDepth)

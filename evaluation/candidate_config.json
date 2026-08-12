@@ -1,0 +1,17 @@
+{
+  "name": "scene_c61e9bf8a2df_candidate",
+  "task_id": "c61e9bf8a2df",
+  "mode": "scene",
+  "input_dir": "data/uploads/c61e9bf8a2df",
+  "ply_path": "evaluation/candidates/c61e9bf8a2df/scene.ply",
+  "parameters": {
+    "weights": "zipsplat",
+    "num_views": 6,
+    "compression": 1.0,
+    "scene_cleanup": {
+      "alpha_threshold": 0.02,
+      "nearest_neighbor_tail_percent": 1
+    },
+    "splat_scale_factor": 1.0
+  }
+}

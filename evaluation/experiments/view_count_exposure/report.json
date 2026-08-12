@@ -1,0 +1,68 @@
+{
+  "6_views_original": {
+    "images": [
+      "IMG_1679.jpg",
+      "IMG_1683.jpg",
+      "IMG_1681.jpg",
+      "IMG_1677.jpg",
+      "IMG_1678.jpg",
+      "IMG_1680.jpg"
+    ],
+    "count": 62208,
+    "bbox_diagonal": 4.96281624,
+    "alpha_p50": 0.07530111,
+    "scale_p50": 0.03498534,
+    "scale_p99": 0.14979102
+  },
+  "6_views_aligned": {
+    "images": [
+      "IMG_1679.jpg",
+      "IMG_1683.jpg",
+      "IMG_1681.jpg",
+      "IMG_1677.jpg",
+      "IMG_1678.jpg",
+      "IMG_1680.jpg"
+    ],
+    "count": 62208,
+    "bbox_diagonal": 4.94347095,
+    "alpha_p50": 0.08660999,
+    "scale_p50": 0.0329864,
+    "scale_p99": 0.14277285
+  },
+  "9_views_original": {
+    "images": [
+      "IMG_1677.jpg",
+      "IMG_1678.jpg",
+      "IMG_1679.jpg",
+      "IMG_1680.jpg",
+      "IMG_1681.jpg",
+      "IMG_1682.jpg",
+      "IMG_1683.jpg",
+      "IMG_1684.jpg",
+      "IMG_1685.jpg"
+    ],
+    "count": 93312,
+    "bbox_diagonal": 4.59571838,
+    "alpha_p50": 0.05690156,
+    "scale_p50": 0.02347553,
+    "scale_p99": 0.09989846
+  },
+  "9_views_aligned": {
+    "images": [
+      "IMG_1677.jpg",
+      "IMG_1678.jpg",
+      "IMG_1679.jpg",
+      "IMG_1680.jpg",
+      "IMG_1681.jpg",
+      "IMG_1682.jpg",
+      "IMG_1683.jpg",
+      "IMG_1684.jpg",
+      "IMG_1685.jpg"
+    ],
+    "count": 93312,
+    "bbox_diagonal": 4.50631571,
+    "alpha_p50": 0.06799753,
+    "scale_p50": 0.02132042,
+    "scale_p99": 0.09709541
+  }
+}

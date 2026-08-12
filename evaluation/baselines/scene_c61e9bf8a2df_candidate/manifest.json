@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-10T02:28:31.176753+00:00",
+  "config": {
+    "name": "scene_c61e9bf8a2df_candidate",
+    "task_id": "c61e9bf8a2df",
+    "mode": "scene",
+    "input_dir": "data/uploads/c61e9bf8a2df",
+    "ply_path": "evaluation/candidates/c61e9bf8a2df/scene.ply",
+    "parameters": {
+      "weights": "zipsplat",
+      "num_views": 6,
+      "compression": 1.0,
+      "scene_cleanup": {
+        "alpha_threshold": 0.02,
+        "nearest_neighbor_tail_percent": 1
+      },
+      "splat_scale_factor": 1.0
+    }
+  },
+  "inputs": [
+    {
+      "name": "IMG_20260807_210338.jpg",
+      "bytes": 1919892,
+      "sha256": "ea3d6f2c45aaee1cae865c2a2a8c6c8a3a8757877e8f987ecb96628707f30b66"
+    },
+    {
+      "name": "IMG_20260807_210347.jpg",
+      "bytes": 1931241,
+      "sha256": "a980a84e3bd526fbdd05881d6490d53c7ff54d419a24c53647d349f759d34b5e"
+    },
+    {
+      "name": "IMG_20260807_210358.jpg",
+      "bytes": 1806385,
+      "sha256": "bf7f96d38f5b507285caac07970124b01cd2282dbf377424777579dd492513b6"
+    }
+  ],
+  "output": {
+    "name": "scene.ply",
+    "bytes": 2370375,
+    "sha256": "647e7597a04f4d526b098943ca1870b2dc32793a21677f438b9d7e3169eb9363"
+  }
+}

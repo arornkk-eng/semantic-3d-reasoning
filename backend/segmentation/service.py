@@ -202,5 +202,14 @@ class SegmentationService:
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+    def release_predictor(self) -> None:
+        """Release an automatically loaded predictor when no manual session owns it."""
+        with self._lock:
+            if self._session is not None:
+                return
+            self._predictor = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
 
 segmentation_service = SegmentationService()

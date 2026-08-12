@@ -31,6 +31,7 @@ import { RectSelection } from './tools/rect-selection';
 import { RotateTool } from './tools/rotate-tool';
 import { ScaleTool } from './tools/scale-tool';
 import { SegmentationTool } from './tools/segmentation-tool';
+import { SceneUnderstandingTool } from './tools/scene-understanding-tool';
 import { SphereSelection } from './tools/sphere-selection';
 import { ToolManager } from './tools/tool-manager';
 import { registerTrackManagerEvents } from './track-manager';
@@ -257,6 +258,7 @@ const main = async () => {
     toolManager.register('measure', new MeasureTool(events, scene, editorUI.canvasContainer));
     toolManager.register('orient', new OrientTool(events, scene, editorUI.toolsContainer.dom, editorUI.canvasContainer));
     toolManager.register('segmentation', new SegmentationTool(events, scene, editorUI.canvasContainer.dom));
+    toolManager.register('sceneUnderstanding', new SceneUnderstandingTool(events, scene, editorUI.canvasContainer.dom));
 
     const boundDimensionsOverlay = new BoundDimensionsOverlay(events, scene, editorUI.canvasContainer);
 

@@ -38,3 +38,17 @@ supersplat-editor/node_modules/
 supersplat-editor/dist/
 ZipSplat-main/assets/
 third_party/sam2/
+
+# 嵌套发布仓库(独立 git 管理,不入父仓库)
+semantic-3d-editor-release/
+
+# LaTeX 编译产物
+paper_arxiv/*.aux
+paper_arxiv/*.bbl
+paper_arxiv/*.blg
+paper_arxiv/*.log
+paper_arxiv/*.out
+
+# 运行日志
+evaluation/**/*.log
+evaluation/**/*.log.err

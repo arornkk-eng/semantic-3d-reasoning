@@ -1,0 +1,282 @@
+{
+  "passed": true,
+  "task_id": "c61e9bf8a2df",
+  "editor_url": "http://127.0.0.1:5173/splat-editor/index.html?load=http%3A%2F%2F127.0.0.1%3A5173%2Fapi%2Fresult%2Fc61e9bf8a2df%2Fscene.ply&filename=scene.ply&task_id=c61e9bf8a2df",
+  "viewport": {
+    "width": 1280,
+    "height": 800
+  },
+  "preflight": [
+    {
+      "url": "http://127.0.0.1:5173",
+      "ok": true,
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:5173/api/result/c61e9bf8a2df/scene.ply",
+      "ok": true,
+      "status": 206
+    }
+  ],
+  "screenshots": [
+    "D:\\pqg\\Ae study\\python\\uploads\\ZipSplat-Object-Reconstruction-Demo\\evaluation\\segmentation\\projection\\01_focused.png",
+    "D:\\pqg\\Ae study\\python\\uploads\\ZipSplat-Object-Reconstruction-Demo\\evaluation\\segmentation\\projection\\02_three_white_masks.png",
+    "D:\\pqg\\Ae study\\python\\uploads\\ZipSplat-Object-Reconstruction-Demo\\evaluation\\segmentation\\projection\\03_projected.png",
+    "D:\\pqg\\Ae study\\python\\uploads\\ZipSplat-Object-Reconstruction-Demo\\evaluation\\segmentation\\projection\\04_expanded.png",
+    "D:\\pqg\\Ae study\\python\\uploads\\ZipSplat-Object-Reconstruction-Demo\\evaluation\\segmentation\\projection\\05_refined.png",
+    "D:\\pqg\\Ae study\\python\\uploads\\ZipSplat-Object-Reconstruction-Demo\\evaluation\\segmentation\\projection\\06_separated.png",
+    "D:\\pqg\\Ae study\\python\\uploads\\ZipSplat-Object-Reconstruction-Demo\\evaluation\\segmentation\\projection\\07_cancelled_undo.png"
+  ],
+  "initial_selected": 0,
+  "initial_splat_items": 1,
+  "projected_status": "已投射 1132 个 Gaussian",
+  "projected_count": 1132,
+  "projected_selected": 1132,
+  "expanded_status": "种子 1132，扩张 +18",
+  "expanded_seed_count": 1132,
+  "expanded_added_count": 18,
+  "refined_status": "精细种子 1150，open3d-style-scipy +32",
+  "separate_status": "已生成独立 3D 图层，可使用撤销恢复",
+  "separated_splat_items": 2,
+  "after_undo_selected": 0,
+  "after_undo_splat_items": 1,
+  "undo_selection_zero": true,
+  "undo_or_no_pageerror": true,
+  "elapsed_seconds": 14.17,
+  "mock": {
+    "predict_requests": 1,
+    "metadata": {
+      "task_id": "c61e9bf8a2df",
+      "source_ply": "http://127.0.0.1:5173/api/result/c61e9bf8a2df/scene.ply",
+      "viewport_width": 1920,
+      "viewport_height": 1151,
+      "capture_width": 1280,
+      "capture_height": 767,
+      "near": 2.5955634744328124,
+      "far": 10.672880216364064,
+      "projection": "perspective",
+      "fov": 75,
+      "camera_position": [
+        -4.959060192108154,
+        1.9871891736984253,
+        7.7150959968566895
+      ],
+      "camera_rotation": [
+        -0.0805214167271632,
+        -0.3812272060840385,
+        -0.033353063036627335,
+        0.920363891064661
+      ],
+      "view_matrix": [
+        0.7071067690849304,
+        0.12278781831264496,
+        -0.6963642239570618,
+        0,
+        0,
+        0.9848077893257141,
+        0.17364820837974548,
+        0,
+        0.7071067690849304,
+        -0.12278781831264496,
+        0.6963642239570618,
+        0,
+        -1.948811650276184,
+        -0.40076732635498047,
+        -9.17090129852295,
+        1
+      ],
+      "projection_matrix": [
+        1.3032253980636597,
+        0,
+        0,
+        0,
+        0,
+        2.173929452896118,
+        0,
+        0,
+        0,
+        0,
+        -1.6426795721054077,
+        -1,
+        0,
+        0,
+        -6.859242916107178,
+        0
+      ],
+      "views": [
+        {
+          "near": 2.5955634744328124,
+          "far": 10.672880216364064,
+          "projection": "perspective",
+          "fov": 75,
+          "camera_position": [
+            -4.959060192108154,
+            1.9871891736984253,
+            7.7150959968566895
+          ],
+          "camera_rotation": [
+            -0.0805214167271632,
+            -0.3812272060840385,
+            -0.033353063036627335,
+            0.920363891064661
+          ],
+          "view_matrix": [
+            0.7071067690849304,
+            0.12278781831264496,
+            -0.6963642239570618,
+            0,
+            0,
+            0.9848077893257141,
+            0.17364820837974548,
+            0,
+            0.7071067690849304,
+            -0.12278781831264496,
+            0.6963642239570618,
+            0,
+            -1.948811650276184,
+            -0.40076732635498047,
+            -9.17090129852295,
+            1
+          ],
+          "projection_matrix": [
+            1.3032253980636597,
+            0,
+            0,
+            0,
+            0,
+            2.173929452896118,
+            0,
+            0,
+            0,
+            0,
+            -1.6426795721054077,
+            -1,
+            0,
+            0,
+            -6.859242916107178,
+            0
+          ]
+        },
+        {
+          "near": 2.5955634744328124,
+          "far": 10.672880216364064,
+          "projection": "perspective",
+          "fov": 75,
+          "camera_position": [
+            -5.416656494140625,
+            1.9871891736984253,
+            7.206883907318115
+          ],
+          "camera_rotation": [
+            -0.07866549751523977,
+            -0.4288728737281795,
+            -0.03752151492728828,
+            0.8991506734682313
+          ],
+          "view_matrix": [
+            0.6293203830718994,
+            0.13494999706745148,
+            -0.7653393745422363,
+            0,
+            3.490168154485218e-09,
+            0.9848077893257141,
+            0.1736481785774231,
+            0,
+            0.7771459221839905,
+            -0.10928034782409668,
+            0.6197595596313477,
+            0,
+            -2.191988229751587,
+            -0.43845081329345703,
+            -8.95718765258789,
+            1
+          ],
+          "projection_matrix": [
+            1.3032253980636597,
+            0,
+            0,
+            0,
+            0,
+            2.173929452896118,
+            0,
+            0,
+            0,
+            0,
+            -1.6426795721054077,
+            -1,
+            0,
+            0,
+            -6.859242916107178,
+            0
+          ]
+        },
+        {
+          "near": 2.5955634744328124,
+          "far": 10.672880216364064,
+          "projection": "perspective",
+          "fov": 75,
+          "camera_position": [
+            -4.45084810256958,
+            1.9871891736984253,
+            8.17269229888916
+          ],
+          "camera_rotation": [
+            -0.08215662924819073,
+            -0.33253661018844977,
+            -0.029093186822499797,
+            0.9390544593555059
+          ],
+          "view_matrix": [
+            0.7771459817886353,
+            0.10928034782409668,
+            -0.6197596192359924,
+            0,
+            -2.2986768044575e-09,
+            0.9848077893257141,
+            0.17364820837974548,
+            0,
+            0.6293203830718994,
+            -0.13494999706745148,
+            0.7653393745422363,
+            0,
+            -1.684282898902893,
+            -0.36770427227020264,
+            -9.358410835266113,
+            1
+          ],
+          "projection_matrix": [
+            1.3032253980636597,
+            0,
+            0,
+            0,
+            0,
+            2.173929452896118,
+            0,
+            0,
+            0,
+            0,
+            -1.6426795721054077,
+            -1,
+            0,
+            0,
+            -6.859242916107178,
+            0
+          ]
+        }
+      ]
+    },
+    "image_count": 3,
+    "capture_width": 1280,
+    "capture_height": 767
+  },
+  "mask_request_count": 4,
+  "mask_request_urls": [
+    "http://127.0.0.1:5173/__projection-smoke__/mask-0.png",
+    "http://127.0.0.1:5173/__projection-smoke__/mask-0.png?v=1786414676459",
+    "http://127.0.0.1:5173/__projection-smoke__/mask-1.png",
+    "http://127.0.0.1:5173/__projection-smoke__/mask-2.png"
+  ],
+  "route_errors": [],
+  "page_errors": [],
+  "console_errors": []
+}

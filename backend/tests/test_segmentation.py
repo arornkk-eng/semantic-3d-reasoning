@@ -22,9 +22,15 @@ from backend.core.schemas import (
 from backend.segmentation.semantic_service import (
     SCORE_THRESHOLD,
     TARGETS,
+    _accept_refined_mask,
     _decode_depth_map,
+    _grounded_detections,
+    _GroundedDetection,
+    _interior_prompt,
     _match_instances,
     _multiview_overlap,
+    _refine_instances_with_sam,
+    _segment_grounded_detections,
     _target_instances,
     _TargetInstance,
     _validate_capture_dimensions,
@@ -348,6 +354,35 @@ def test_fixed_semantic_categories():
         "cup": ("cup", "杯子"),
         "chair": ("chair", "椅子"),
         "bottle": ("bottle", "瓶子"),
+        "bed": ("bed", "床"),
+        "couch": ("couch", "沙发"),
+        "tv": ("tv", "电视"),
+        "laptop": ("laptop", "笔记本电脑"),
+        "keyboard": ("keyboard", "键盘"),
+        "mouse": ("mouse", "鼠标"),
+        "cell phone": ("cell_phone", "手机"),
+        "book": ("book", "书"),
+        "potted plant": ("potted_plant", "盆栽"),
+        "vase": ("vase", "花瓶"),
+        "clock": ("clock", "时钟"),
+        "refrigerator": ("refrigerator", "冰箱"),
+        "microwave": ("microwave", "微波炉"),
+        "oven": ("oven", "烤箱"),
+        "sink": ("sink", "水槽"),
+        "toilet": ("toilet", "马桶"),
+        "dining table": ("dining_table", "餐桌"),
+        "table": ("table", "桌子"),
+        "desk": ("desk", "书桌"),
+        "coffee table": ("coffee_table", "茶几"),
+        "cabinet": ("cabinet", "柜子"),
+        "wardrobe": ("wardrobe", "衣柜"),
+        "nightstand": ("nightstand", "床头柜"),
+        "table lamp": ("table_lamp", "台灯"),
+        "computer monitor": ("computer_monitor", "显示器"),
+        "trash can": ("trash_can", "垃圾桶"),
+        "door": ("door", "门"),
+        "window": ("window", "窗"),
+        "bookshelf": ("bookshelf", "书架"),
     }
     assert SCORE_THRESHOLD == 0.40
 
@@ -500,3 +535,104 @@ def test_multiview_overlap_reprojects_orthographic_depth():
     }
 
     assert _multiview_overlap(mask, depth, view, mask, view) == 1.0
+
+
+def test_sam_prompt_uses_deepest_coarse_mask_pixel():
+    mask = np.zeros((7, 7), dtype=bool)
+    mask[1:6, 1:6] = True
+
+    prompt = _interior_prompt(mask)
+
+    assert prompt.shape == (1, 2)
+    assert prompt.tolist() == [[3.0, 3.0]]
+
+
+def test_sam_refinement_quality_gate_rejects_drift():
+    coarse = np.zeros((10, 10), dtype=bool)
+    coarse[2:8, 2:8] = True
+    close = np.zeros_like(coarse)
+    close[1:9, 1:9] = True
+    unrelated = np.zeros_like(coarse)
+    unrelated[:3, :3] = True
+
+    assert _accept_refined_mask(coarse, close)
+    assert not _accept_refined_mask(coarse, unrelated)
+
+
+def test_sam_refinement_uses_box_and_falls_back_per_instance(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    coarse = np.zeros((6, 6), dtype=bool)
+    coarse[1:5, 1:5] = True
+    instance = _TargetInstance("chair", "椅子", 0.9, coarse, [1, 1, 4, 4])
+
+    class Predictor:
+        def __init__(self):
+            self.box = None
+
+        def set_image(self, _image):
+            pass
+
+        def predict(self, **kwargs):
+            self.box = kwargs["box"].tolist()
+            refined = np.zeros((1, 6, 6), dtype=bool)
+            refined[0, 1:5, 2:5] = True
+            return refined, np.asarray([0.95]), None
+
+    predictor = Predictor()
+    refined = _refine_instances_with_sam(Image.new("RGB", (6, 6)), [instance], predictor)
+
+    assert predictor.box == [1.0, 1.0, 4.0, 4.0]
+    assert refined[0].bbox == [2, 1, 4, 4]
+
+    predictor.predict = lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("oom"))
+    fallback = _refine_instances_with_sam(Image.new("RGB", (6, 6)), [instance], predictor)
+    assert fallback[0] is instance
+
+
+def test_grounding_dino_labels_are_normalized_and_duplicate_boxes_removed():
+    result = {
+        "scores": torch.tensor([0.9, 0.8, 0.7]),
+        "boxes": torch.tensor([[1, 1, 8, 8], [1, 1, 8, 8], [2, 2, 5, 5]]),
+        "text_labels": ["cell phone", "cell phone.", "unknown object"],
+    }
+
+    detections = _grounded_detections(result, 10, 10)
+
+    assert len(detections) == 1
+    assert detections[0].category == "cell_phone"
+    assert detections[0].category_zh == "手机"
+
+
+def test_grounding_dino_prefers_longest_table_label():
+    result = {
+        "scores": torch.tensor([0.9, 0.8]),
+        "boxes": torch.tensor([[1, 1, 8, 8], [2, 2, 7, 7]]),
+        "text_labels": ["dining table", "coffee table"],
+    }
+
+    detections = _grounded_detections(result, 10, 10)
+
+    assert [item.category for item in detections] == ["dining_table", "coffee_table"]
+
+
+def test_grounding_dino_boxes_are_segmented_by_sam(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    detection = _GroundedDetection("bed", "床", 0.88, [1, 1, 4, 4])
+
+    class Predictor:
+        def set_image(self, _image):
+            pass
+
+        def predict(self, **kwargs):
+            assert kwargs["box"].tolist() == [1.0, 1.0, 4.0, 4.0]
+            mask = np.zeros((1, 6, 6), dtype=bool)
+            mask[0, 1:5, 1:5] = True
+            return mask, np.asarray([0.9]), None
+
+    instances = _segment_grounded_detections(
+        Image.new("RGB", (6, 6)), [detection], Predictor()
+    )
+
+    assert len(instances) == 1
+    assert instances[0].category == "bed"
+    assert instances[0].bbox == [1, 1, 4, 4]

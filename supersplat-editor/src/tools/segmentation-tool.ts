@@ -29,6 +29,7 @@ type CapturedView = {
     image: Blob;
     depth: Blob;
     depthValues: Float32Array;
+    depthCoverage: Float32Array;
     metadata: {
         task_id: string | null;
         source_ply: string;
@@ -294,9 +295,13 @@ class SegmentationTool {
         const params = new URLSearchParams(location.search);
         const image = await this.captureSceneBlob();
         const { width, height } = this.captureSize();
-        const depthValues: Float32Array = await this.events.invoke('render.depth', width, height);
+        const depthData: { depth: Float32Array; coverage: Float32Array } =
+            await this.events.invoke('render.depthData', width, height);
+        const depthValues = depthData.depth;
         const depthCopy = new Float32Array(depthValues.length);
         depthCopy.set(depthValues);
+        const coverageCopy = new Float32Array(depthData.coverage.length);
+        coverageCopy.set(depthData.coverage);
         const depth = new Blob([depthCopy.buffer], { type: 'application/octet-stream' });
         const camera = this.scene.camera.camera;
         const position = this.scene.camera.position;
@@ -306,6 +311,7 @@ class SegmentationTool {
             image,
             depth,
             depthValues: depthCopy,
+            depthCoverage: coverageCopy,
             metadata: {
                 task_id: params.get('task_id'),
                 source_ply: params.get('load') ?? '',
@@ -530,6 +536,8 @@ class SegmentationTool {
                             semantic: {
                                 mask: texture,
                                 depth: view.depthValues,
+                                depthCoverage: view.depthCoverage,
+                                minDepthCoverage: 0.08,
                                 depthWidth: width,
                                 depthHeight: height,
                                 viewMatrix: this.matrixFromArray(view.metadata.view_matrix),
@@ -570,7 +578,7 @@ class SegmentationTool {
                 const union = combined.get(splat);
                 for (let index = 0; index < count; index++) {
                     if ((splat.state.data[index] & (State.locked | State.deleted)) !== 0) continue;
-                    const accepted = positive[index] >= 2 ||
+                    const accepted = (positive[index] >= 2 && positive[index] > visibleOutside[index]) ||
                         (positive[index] === 1 && visible[index] === 1 && frontMismatch[index] === 0);
                     if (accepted) {
                         union[index] = 255;

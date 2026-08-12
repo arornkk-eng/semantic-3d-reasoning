@@ -14,6 +14,7 @@ from backend.core.schemas import (
     GeometricRefineMetadata,
     GeometricRefineResponse,
     LayerCreateRequest,
+    LayerRenameRequest,
     SegmentationLayerResponse,
     SegmentationPredictRequest,
     SegmentationPredictResponse,
@@ -23,6 +24,9 @@ from backend.core.schemas import (
     SemanticInstanceResponse,
     SemanticPredictResponse,
     SemanticViewMaskResponse,
+    SceneSnapshotCreateRequest,
+    SceneSnapshotRenameRequest,
+    SceneSnapshotResponse,
 )
 from backend.segmentation.geometric_refinement import refine_gaussian_selection
 from backend.segmentation.semantic_service import semantic_service
@@ -34,10 +38,20 @@ from backend.segmentation.service import (
 from backend.storage.file_manager import get_task_meta
 from backend.storage.layer_store import (
     create_layer,
+    delete_layer,
     get_gaussian_indices_path,
     get_mask_path,
     hash_task_scene_ply,
     list_layers,
+    rename_layer,
+)
+from backend.storage.scene_snapshot_store import (
+    create_snapshot,
+    delete_snapshot,
+    delete_snapshots_using_layer,
+    list_snapshots,
+    rename_snapshot,
+    snapshots_using_layer,
 )
 
 router = APIRouter()
@@ -345,6 +359,72 @@ async def confirm_segmentation_layer(task_id: str, request: LayerCreateRequest):
 @router.get("/tasks/{task_id}/layers", response_model=list[SegmentationLayerResponse])
 async def get_segmentation_layers(task_id: str):
     return list_layers(task_id)
+
+
+@router.patch("/tasks/{task_id}/layers/{layer_id}", response_model=SegmentationLayerResponse)
+async def update_segmentation_layer(task_id: str, layer_id: str, request: LayerRenameRequest):
+    try:
+        return rename_layer(task_id, layer_id, request.name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="语义图层不存在") from exc
+
+
+@router.get("/tasks/{task_id}/layers/{layer_id}/delete-impact")
+async def get_layer_delete_impact(task_id: str, layer_id: str):
+    if not any(item["layer_id"] == layer_id for item in list_layers(task_id)):
+        raise HTTPException(status_code=404, detail="语义图层不存在")
+    return {"layer_count": 1, "snapshot_count": len(snapshots_using_layer(task_id, layer_id))}
+
+
+@router.delete("/tasks/{task_id}/layers/{layer_id}")
+async def remove_segmentation_layer(task_id: str, layer_id: str):
+    try:
+        snapshot_count = delete_snapshots_using_layer(task_id, layer_id)
+        delete_layer(task_id, layer_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="语义图层不存在") from exc
+    return {"deleted": True, "layer_count": 1, "snapshot_count": snapshot_count}
+
+
+@router.get(
+    "/tasks/{task_id}/scene-snapshots",
+    response_model=list[SceneSnapshotResponse],
+)
+async def get_scene_snapshots(task_id: str):
+    return list_snapshots(task_id)
+
+
+@router.post(
+    "/tasks/{task_id}/scene-snapshots",
+    response_model=SceneSnapshotResponse,
+)
+async def add_scene_snapshot(task_id: str, request: SceneSnapshotCreateRequest):
+    known_layers = {item["layer_id"] for item in list_layers(task_id)}
+    if any(item.layer_id not in known_layers for item in request.objects):
+        raise HTTPException(status_code=409, detail="快照引用了不存在的语义图层")
+    return create_snapshot(task_id, request)
+
+
+@router.patch(
+    "/tasks/{task_id}/scene-snapshots/{snapshot_id}",
+    response_model=SceneSnapshotResponse,
+)
+async def update_scene_snapshot(
+    task_id: str, snapshot_id: str, request: SceneSnapshotRenameRequest
+):
+    try:
+        return rename_snapshot(task_id, snapshot_id, request.name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="视角快照不存在") from exc
+
+
+@router.delete("/tasks/{task_id}/scene-snapshots/{snapshot_id}")
+async def remove_scene_snapshot(task_id: str, snapshot_id: str):
+    try:
+        delete_snapshot(task_id, snapshot_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="视角快照不存在") from exc
+    return {"deleted": True}
 
 
 @router.get("/tasks/{task_id}/layers/{layer_id}/mask")

@@ -127,6 +127,12 @@ class BottomToolbar extends Container {
             text: '分割'
         });
 
+        const sceneUnderstanding = new Button({
+            id: 'bottom-toolbar-scene-understanding',
+            class: 'bottom-toolbar-tool',
+            text: '理解'
+        });
+
         const coordSpace = new Button({
             id: 'bottom-toolbar-coord-space',
             class: 'bottom-toolbar-toggle',
@@ -172,6 +178,7 @@ class BottomToolbar extends Container {
         this.append(scale);
         this.append(new Element({ class: 'bottom-toolbar-separator' }));
         this.append(segmentation);
+        this.append(sceneUnderstanding);
         this.append(new Element({ class: 'bottom-toolbar-separator' }));
         this.append(measure);
         this.append(orient);
@@ -194,6 +201,7 @@ class BottomToolbar extends Container {
         measure.dom.addEventListener('click', () => events.fire('tool.measure'));
         orient.dom.addEventListener('click', () => events.fire('tool.orient'));
         segmentation.dom.addEventListener('click', () => events.fire('tool.segmentation'));
+        sceneUnderstanding.dom.addEventListener('click', () => events.fire('tool.sceneUnderstanding'));
         coordSpace.dom.addEventListener('click', () => events.fire('tool.toggleCoordSpace'));
         origin.dom.addEventListener('click', (e: MouseEvent) => {
             if (events.invoke('tool.active') === 'orient') {
@@ -224,6 +232,7 @@ class BottomToolbar extends Container {
             measure.class[toolName === 'measure' ? 'add' : 'remove']('active');
             orient.class[toolName === 'orient' ? 'add' : 'remove']('active');
             segmentation.class[toolName === 'segmentation' ? 'add' : 'remove']('active');
+            sceneUnderstanding.class[toolName === 'sceneUnderstanding' ? 'add' : 'remove']('active');
             eyedropper.class[toolName === 'eyedropperSelection' ? 'add' : 'remove']('active');
         });
 
@@ -261,6 +270,7 @@ class BottomToolbar extends Container {
         tooltips.register(measure, tooltip('tooltip.bottom-toolbar.measure'));
         tooltips.register(orient, tooltip('tooltip.bottom-toolbar.orient'));
         tooltips.register(segmentation, () => '当前视角提示点分割');
+        tooltips.register(sceneUnderstanding, () => '分析语义图层的当前视角关系');
         tooltips.register(coordSpace, tooltip('tooltip.bottom-toolbar.local-space', 'tool.toggleCoordSpace'));
         tooltips.register(origin, () => i18n.t(
             events.invoke('tool.active') === 'orient' ? 'orient.set-pivot' : 'tooltip.bottom-toolbar.reset-pivot'

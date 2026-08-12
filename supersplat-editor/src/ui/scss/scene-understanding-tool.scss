@@ -1,0 +1,39 @@
+#scene-understanding-tool {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 21;
+    pointer-events: none;
+    &.active { display: block; }
+    &.busy .scene-understanding-panel { opacity: 0.75; }
+    .scene-understanding-panel {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        width: 390px;
+        max-height: calc(100% - 28px);
+        overflow: auto;
+        padding: 12px;
+        border: 1px solid #555;
+        border-radius: 6px;
+        background: rgba(25, 25, 25, 0.96);
+        color: white;
+        pointer-events: auto;
+    }
+    header, .understanding-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    header { margin-bottom: 10px; font-size: 15px; }
+    section { margin: 10px 0; }
+    h4 { margin: 0 0 6px; color: #ccc; }
+    button { min-height: 26px; border: 1px solid #555; border-radius: 3px; background: #333; color: white; cursor: pointer; }
+    button.primary { width: 100%; border-color: #ff7a18; background: #8a3d08; }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    .understanding-list { display: grid; gap: 5px; color: #aaa; }
+    .understanding-row { padding: 5px 0; border-bottom: 1px solid #3c3c3c; color: white; }
+    .understanding-row span { display: flex; gap: 3px; }
+    .layer-choice { flex: 1; text-align: left; }
+    .layer-choice.selected { border-color: #ff7a18; background: #5f310e; }
+    .snapshot-row { align-items: flex-start; }
+    .understanding-result { padding: 8px; min-height: 36px; border-radius: 4px; background: #181818; color: #ddd; }
+    .understanding-result p { margin: 6px 0 0; }
+    [data-role="status"] { display: block; min-height: 18px; color: #ffb37a; }
+}

@@ -5,7 +5,7 @@
 替换原先直接返回裸 dict 的写法，避免字段漂移与前后端对接踩坑。
 """
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
 
@@ -89,6 +89,9 @@ class SegmentationLayerResponse(BaseModel):
     gaussian_indices: list[GaussianIndexFileResponse] = Field(default_factory=list)
     source_ply_sha256: str | None = None
     source_ply_sha256_status: str | None = None
+    category: str | None = None
+    category_zh: str | None = None
+    instance_index: int | None = None
 
 
 class SemanticViewMaskResponse(BaseModel):
@@ -222,3 +225,75 @@ class SemanticConfirmRequest(BaseModel):
                 raise ValueError("Gaussian index set 不属于已选实例")
         _validate_gaussian_index_set_collection(self.gaussian_index_sets)
         return self
+
+
+class LayerRenameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=80)
+
+
+class SceneSnapshotCamera(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    view_matrix: list[float] = Field(min_length=16, max_length=16)
+    projection_matrix: list[float] = Field(min_length=16, max_length=16)
+    position: list[float] = Field(min_length=3, max_length=3)
+    rotation: list[float] = Field(min_length=4, max_length=4)
+    focal_point: list[float] = Field(min_length=3, max_length=3)
+    azim: float
+    elevation: float
+    distance: float = Field(gt=0)
+    fov: float = Field(gt=0, lt=180)
+
+
+class SceneSnapshotObject(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    layer_id: str = Field(min_length=1, max_length=32)
+    name: str = Field(min_length=1, max_length=80)
+    category: str = Field(min_length=1, max_length=64)
+    center_camera: list[float] = Field(min_length=3, max_length=3)
+    bounds_min_camera: list[float] = Field(min_length=3, max_length=3)
+    bounds_max_camera: list[float] = Field(min_length=3, max_length=3)
+
+
+class SceneSnapshotRelation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    subject: str = Field(min_length=1, max_length=32)
+    predicate: Literal[
+        "left_of", "right_of", "front_of", "behind",
+        "left_front_of", "right_front_of", "left_behind", "right_behind",
+        "above", "below", "near", "overlap",
+    ]
+    object: str = Field(min_length=1, max_length=32)
+    confidence: float = Field(ge=0, le=1)
+
+
+class SceneSnapshotCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    camera: SceneSnapshotCamera
+    objects: list[SceneSnapshotObject] = Field(min_length=1, max_length=10)
+    relations: list[SceneSnapshotRelation] = Field(default_factory=list, max_length=300)
+    functions: dict[str, list[str]] = Field(default_factory=dict)
+    description: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_references(self):
+        layer_ids = [item.layer_id for item in self.objects]
+        if len(layer_ids) != len(set(layer_ids)):
+            raise ValueError("快照对象图层不能重复")
+        known = set(layer_ids)
+        if any(item.subject not in known or item.object not in known for item in self.relations):
+            raise ValueError("空间关系引用了快照之外的图层")
+        return self
+
+
+class SceneSnapshotRenameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=80)
+
+
+class SceneSnapshotResponse(SceneSnapshotCreateRequest):
+    snapshot_id: str
+    task_id: str
+    name: str
+    sequence: int
+    created_at: str

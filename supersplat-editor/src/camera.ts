@@ -818,10 +818,14 @@ class Camera extends Element {
     }
 
     async captureDepthMap(width: number, height: number): Promise<Float32Array> {
+        return (await this.captureDepthData(width, height)).depth;
+    }
+
+    async captureDepthData(width: number, height: number): Promise<{ depth: Float32Array; coverage: Float32Array }> {
         this.startOffscreenMode(width, height);
         try {
             this.picker.prepareSceneDepth();
-            return await this.picker.readDepthMap();
+            return await this.picker.readDepthData();
         } finally {
             this.endOffscreenMode();
             this.scene.forceRender = true;

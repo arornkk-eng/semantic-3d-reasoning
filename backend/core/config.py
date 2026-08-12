@@ -56,6 +56,12 @@ SAM2_CHECKPOINT = Path(
     os.environ.get("SAM2_CHECKPOINT", PROJECT_ROOT / "models" / "sam2.1_hiera_tiny.pt")
 )
 SAM2_MODEL_CONFIG = os.environ.get("SAM2_MODEL_CONFIG", "configs/sam2.1/sam2.1_hiera_t.yaml")
+SEMANTIC_DETECTOR = os.environ.get("SEMANTIC_DETECTOR", "auto").strip().lower()
+GROUNDING_DINO_MODEL = os.environ.get(
+    "GROUNDING_DINO_MODEL", str(PROJECT_ROOT / "models" / "grounding-dino-tiny")
+)
+GROUNDING_DINO_BOX_THRESHOLD = float(os.environ.get("GROUNDING_DINO_BOX_THRESHOLD", "0.30"))
+GROUNDING_DINO_TEXT_THRESHOLD = float(os.environ.get("GROUNDING_DINO_TEXT_THRESHOLD", "0.25"))
 SEGMENTATION_SESSION_TTL_SECONDS = 10 * 60
 MAX_SEGMENTATION_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_SEGMENTATION_IMAGE_SIDE = 4096

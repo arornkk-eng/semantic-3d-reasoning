@@ -1,0 +1,24 @@
+{
+  "old": {
+    "scene_outlier_percentile": 5,
+    "gaussian_count": 21866,
+    "ply_size": 2274695,
+    "bbox_diagonal": 8.07731674
+  },
+  "candidate": {
+    "scene_outlier_percentile": 1,
+    "splat_scale_factor": 1.0,
+    "gaussian_count": 22786,
+    "ply_size": 2370375,
+    "splat_size": 729152,
+    "bbox_diagonal": 8.70437656
+  },
+  "delta": {
+    "gaussian_count": 920,
+    "gaussian_count_pct": 4.207,
+    "ply_size": 95680,
+    "ply_size_pct": 4.206,
+    "bbox_diagonal": 0.62705982,
+    "bbox_diagonal_pct": 7.763
+  }
+}

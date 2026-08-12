@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import shutil
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -136,6 +137,41 @@ def list_layers(task_id: str) -> list[dict]:
     for path in sorted(directory.glob("*/layer.json")):
         result.append(json.loads(path.read_text(encoding="utf-8")))
     return result
+
+
+def rename_layer(task_id: str, layer_id: str, name: str) -> dict:
+    path = _layer_metadata_path(task_id, layer_id)
+    if path is None:
+        raise KeyError(layer_id)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["name"] = name.strip()
+    _write_json(path, data)
+    return data
+
+
+def delete_layer(task_id: str, layer_id: str) -> None:
+    path = _layer_metadata_path(task_id, layer_id)
+    if path is None:
+        raise KeyError(layer_id)
+    directory = path.parent.resolve()
+    if directory.parent != _task_dir(task_id).resolve():
+        raise ValueError("图层目录越界")
+    shutil.rmtree(directory)
+
+
+def _layer_metadata_path(task_id: str, layer_id: str) -> Path | None:
+    if not layer_id.isalnum() or len(layer_id) > 32:
+        return None
+    path = _task_dir(task_id) / layer_id / "layer.json"
+    return path if path.is_file() else None
+
+
+def _write_json(path: Path, data: dict) -> None:
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    temporary.replace(path)
 
 
 def get_mask_path(task_id: str, layer_id: str) -> Path | None:

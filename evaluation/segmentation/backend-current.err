@@ -1,0 +1,10 @@
+INFO:     Started server process [37144]
+INFO:     Waiting for application startup.
+15:33:46 [INFO] backend.main: 数据目录就绪: D:\pqg\Ae study\python\uploads\ZipSplat-Object-Reconstruction-Demo\data\tasks
+15:33:46 [INFO] backend.main: 数据目录就绪: D:\pqg\Ae study\python\uploads\ZipSplat-Object-Reconstruction-Demo\data\uploads
+15:33:46 [INFO] backend.main: 数据目录就绪: D:\pqg\Ae study\python\uploads\ZipSplat-Object-Reconstruction-Demo\data\outputs
+15:33:46 [INFO] backend.main: 数据目录就绪: D:\pqg\Ae study\python\uploads\ZipSplat-Object-Reconstruction-Demo\data\layers
+15:33:46 [INFO] backend.core.worker: Worker 线程已启动
+15:33:46 [INFO] backend.main: ZipSplat-Demo 后端已就绪
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)

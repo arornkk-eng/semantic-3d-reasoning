@@ -31,6 +31,8 @@ type SemanticMaskDepthOptions = {
     semantic: {
         mask: Texture;
         depth: Float32Array;
+        depthCoverage?: Float32Array;
+        minDepthCoverage?: number;
         depthWidth: number;
         depthHeight: number;
         viewMatrix: Mat4;
@@ -92,6 +94,7 @@ class Intersect {
     private texture: Texture = null;
     private renderTarget: RenderTarget = null;
     private semanticDepthTexture: Texture = null;
+    private semanticCoverageTexture: Texture = null;
 
     constructor(device: GraphicsDevice) {
         this.device = device;
@@ -198,6 +201,34 @@ class Intersect {
         return this.semanticDepthTexture;
     }
 
+    private uploadSemanticCoverage(coverage: Float32Array, width: number, height: number): Texture {
+        if (coverage.length !== width * height) {
+            throw new Error(`Semantic coverage length ${coverage.length} does not match ${width}x${height}`);
+        }
+        if (!this.semanticCoverageTexture ||
+            this.semanticCoverageTexture.width !== width ||
+            this.semanticCoverageTexture.height !== height) {
+            this.semanticCoverageTexture?.destroy();
+            this.semanticCoverageTexture = new Texture(this.device, {
+                name: 'semanticCoverage',
+                width,
+                height,
+                format: PIXELFORMAT_R32F,
+                mipmaps: false,
+                minFilter: FILTER_NEAREST,
+                magFilter: FILTER_NEAREST,
+                addressU: ADDRESS_CLAMP_TO_EDGE,
+                addressV: ADDRESS_CLAMP_TO_EDGE
+            });
+        }
+        const target = this.semanticCoverageTexture.lock() as Float32Array;
+        for (let i = 0; i < coverage.length; ++i) {
+            target[i] = Number.isFinite(coverage[i]) ? Math.min(1, Math.max(0, coverage[i])) : 0;
+        }
+        this.semanticCoverageTexture.unlock();
+        return this.semanticCoverageTexture;
+    }
+
     async run(options: IntersectOptions, splat: Splat, bufferPool: BufferPool): Promise<Uint8Array> {
         const { device } = this;
         const { scope } = device;
@@ -236,10 +267,11 @@ class Intersect {
             matrix_viewProjection: this.viewProjectionMat.data,
             output_params: [resources.texture.width, resources.texture.height],
             semanticDepth: this.dummyDepthTexture,
+            semanticCoverage: this.dummyDepthTexture,
             semantic_depth_params: [1, 1, 0.1, 1000],
             semantic_viewMatrix: identityMat.data,
             semantic_params: [0, 0.5, 0.03, splat.transparency],
-            semantic_tolerance: [0.0025, 2.0, 0.05]
+            semantic_tolerance: [0.0025, 2.0, 0.05, 0.05]
         });
 
         if (semanticOptions) {
@@ -261,6 +293,9 @@ class Intersect {
                 mask: semanticOptions.mask,
                 mask_params: [semanticOptions.mask.width, semanticOptions.mask.height],
                 semanticDepth: this.uploadSemanticDepth(depth, depthWidth, depthHeight),
+                semanticCoverage: semanticOptions.depthCoverage ?
+                    this.uploadSemanticCoverage(semanticOptions.depthCoverage, depthWidth, depthHeight) :
+                    this.dummyDepthTexture,
                 semantic_depth_params: [depthWidth, depthHeight, near, far],
                 semantic_viewMatrix: viewMatrix.data,
                 semantic_params: [
@@ -272,7 +307,8 @@ class Intersect {
                 semantic_tolerance: [
                     baseTolerance,
                     Math.max(0, semanticOptions.scaleDepthTolerance ?? 2.0),
-                    maxTolerance
+                    maxTolerance,
+                    Math.min(1, Math.max(0, semanticOptions.minDepthCoverage ?? 0))
                 ]
             });
         }

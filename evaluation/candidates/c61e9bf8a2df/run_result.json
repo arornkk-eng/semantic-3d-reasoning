@@ -1,0 +1,20 @@
+{
+  "task_id": "c61e9bf8a2df",
+  "mode": "scene",
+  "parameters": {
+    "num_views": 6,
+    "scene_alpha_threshold": 0.02,
+    "scene_outlier_percentile": 1,
+    "splat_scale_factor": 1.0
+  },
+  "reconstruction": {
+    "num_gaussians": 22786,
+    "ply_size": 2370375,
+    "view_selection": null
+  },
+  "conversion": {
+    "splat_count": 22786,
+    "ply_size": 2370375,
+    "splat_size": 729152
+  }
+}

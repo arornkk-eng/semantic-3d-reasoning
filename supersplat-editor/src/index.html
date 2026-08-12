@@ -14,8 +14,15 @@
         <script>
             const sw = navigator.serviceWorker;
             if (sw) {
-                sw.register('./sw.js')
-                    .then(reg => console.log('service worker registered', reg))
+                let refreshing = false;
+                sw.addEventListener('controllerchange', () => {
+                    if (!refreshing) {
+                        refreshing = true;
+                        location.reload();
+                    }
+                });
+                sw.register('./sw.js?v=scene-understanding-1')
+                    .then((reg) => reg.update())
                     .catch(err => console.log('failed to register service worker', err));
             }
         </script>

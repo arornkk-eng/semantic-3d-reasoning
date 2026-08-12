@@ -1,0 +1,226 @@
+% Compile with XeLaTeX. Replace author and affiliation before submission.
+\documentclass[10pt,twocolumn]{ctexart}
+
+\usepackage[a4paper,margin=1.8cm,columnsep=0.65cm]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+\usepackage[numbers,sort&compress]{natbib}
+
+\setlength{\parindent}{2em}
+\setlength{\parskip}{0pt}
+\newcommand{\method}{MVSG-Edit}
+
+\title{面向三维高斯场景的多视角语义投射、\\几何补全与对象级编辑}
+\author{作者姓名\\单位名称\\\texttt{email@example.com}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+少视图前馈式三维重建能够快速生成可实时渲染的 3D Gaussian Splatting（3DGS）场景，但输出通常缺少对象级语义，难以支持实例选择、独立导出与场景关系分析。本文提出一套面向 3DGS 场景的多视角语义投射与受限几何补全框架。系统首先固定用户当前相机，捕获中心及辅助视角的 RGB、alpha 加权深度和相机矩阵；随后利用二维实例分割和基于深度重投影的跨视角实例关联获得一致语义证据。针对透明 Gaussian 和遮挡问题，本文将每个 Gaussian 划分为可见、前置不一致、后置遮挡及低透明度等状态，并把遮挡作为未知证据而非负证据进行多视角融合。对于破损或漏选区域，进一步采用基于 KD 树、局部法向、颜色、尺度与透明度约束的有限区域生长。融合结果直接写入浏览器编辑器的 Gaussian 状态，可分离为独立三维语义图层并支持持久化、撤销及导出。当前原型已在真实 3DGS PLY 上完成端到端功能验证。初步测试中，投射得到 1132 个 Gaussian，快速补全增加 18 个，精细补全增加 32 个，且图层分离与撤销链路无页面、路由或着色器错误。现有结果验证了系统可行性，但尚不能代表分割精度；后续将通过多场景 Gaussian 级标注、对比实验和消融实验评价方法有效性。
+\end{abstract}
+
+\noindent\textbf{关键词：}3D Gaussian Splatting；多视角语义融合；实例分割；深度投射；区域生长；对象级编辑
+
+\section{引言}
+
+3D Gaussian Splatting（3DGS）以显式各向异性 Gaussian 表示场景，在实时新视角合成方面取得良好效果\citep{kerbl2023gaussian}。ZipSplat 等前馈方法进一步从少量未标定图像直接预测紧凑 Gaussian 集合\citep{veicht2026zipsplat}，降低了三维重建的输入和计算成本。
+
+然而，快速重建输出仍是一组缺少对象身份的 Gaussian。用户能够观看场景，却难以完整选择一个瓶子、剥离一把椅子、补全被遮挡的局部区域或单独导出目标对象。二维实例分割可提供像素级 mask，但直接把 mask 投射到 3DGS 会受到透明混合、漂浮 Gaussian、深度噪声、遮挡及跨视角实例不一致影响。
+
+本文研究二维实例语义向 3DGS 原语的可靠迁移，提出 \method{} 框架。其核心思想是：使用多视角 RGBD 提供语义证据；以 Gaussian 中心为计算单位；通过深度和透明度判断可见性；把遮挡状态视为未知；最后使用受限局部几何生长恢复漏选区域。
+
+本文当前贡献概括如下：
+\begin{itemize}
+    \item 构建面向透明 3DGS 的多视角 RGBD 捕获与 Gaussian 级语义投射链路；
+    \item 设计区分可见、前置不一致和后置遮挡的深度证据融合策略；
+    \item 实现结合位置、颜色、尺度、透明度与局部法向的受限 Gaussian 区域生长；
+    \item 完成从语义检测、三维投射到独立对象图层、持久化和导出的交互系统。
+\end{itemize}
+
+上述贡献目前属于待系统实验验证的候选贡献。本文不会依据单场景功能测试宣称精度优于现有方法。
+
+\section{相关工作}
+
+\subsection{三维重建与 3D Gaussian Splatting}
+
+NeRF 使用隐式神经辐射场表达场景\citep{mildenhall2020nerf}。3DGS 以显式 Gaussian 实现高质量实时渲染\citep{kerbl2023gaussian}。ZipSplat 通过前馈网络从少量无位姿图像输出紧凑 Gaussian 集合，不执行逐场景优化\citep{veicht2026zipsplat}。这些方法主要优化重建和渲染质量，对重建后的对象级语义编辑关注较少。
+
+\subsection{二维实例分割}
+
+Mask R-CNN 在检测框架中增加实例 mask 分支，可同时输出类别、边界框和像素 mask\citep{he2017mask}. Segment Anything 系列提供提示驱动的通用分割能力\citep{ravi2024sam2}。本文原型采用 COCO 预训练 Mask R-CNN 自动识别固定类别。SAM 2.1 已在代码层接入，但尚未形成正式用户入口，因此不作为当前实验成果。
+
+\subsection{三维语义融合与几何生长}
+
+二维语义到三维的常见路线包括深度反投影、多视角投票和点云区域生长。Open3D 提供 KD 树、法向估计和点云处理基础\citep{zhou2018open3d}。本文借鉴其几何处理思想，但当前补全使用 SciPy KD 树和局部 PCA 实现，并未直接调用 Open3D。
+
+\section{问题定义}
+
+设 3DGS 场景为
+\begin{equation}
+\mathcal{G}=\{g_i\}_{i=1}^{N},\quad
+g_i=(\bm{\mu}_i,\mathbf{R}_i,\mathbf{s}_i,\alpha_i,\mathbf{c}_i),
+\end{equation}
+其中 $\bm{\mu}_i\in\mathbb{R}^3$ 为中心，$\mathbf{R}_i$ 为旋转，$\mathbf{s}_i$ 为尺度，$\alpha_i$ 为透明度，$\mathbf{c}_i$ 为颜色或球谐特征。
+
+给定用户视角附近的图像集合 $\{I_v\}$、深度图 $\{D_v\}$、视图矩阵 $\{\mathbf{V}_v\}$、投影矩阵 $\{\mathbf{P}_v\}$ 和目标实例 mask $\{M_v^o\}$，目标是估计
+\begin{equation}
+y_i^o\in\{0,1\},\qquad
+\mathcal{G}_o=\{g_i\mid y_i^o=1\}.
+\end{equation}
+输出 $\mathcal{G}_o$ 应具有较高实例纯度和表面完整度，并可直接作为编辑器对象图层。
+
+\section{方法}
+
+\subsection{总体流程}
+
+\begin{figure*}[t]
+\centering
+\fbox{\parbox{0.96\textwidth}{\centering
+少视图图像 $\rightarrow$ ZipSplat 重建 $\rightarrow$ 3DGS PLY $\rightarrow$
+当前相机定格 $\rightarrow$ 三视角 RGBD 捕获 $\rightarrow$
+二维实例分割 $\rightarrow$ 跨视角实例关联 $\rightarrow$
+深度约束 Gaussian 投射 $\rightarrow$ 多视角融合 $\rightarrow$
+局部几何补全 $\rightarrow$ 独立三维语义图层}}
+\caption{系统总体流程。二维语义经过多视角深度约束后转化为 Gaussian 级对象集合。}
+\label{fig:pipeline}
+\end{figure*}
+
+系统首先使用 ZipSplat 从多视角图片重建 3DGS PLY。用户在浏览器中调整相机并触发分割，编辑器固定主视角并生成两个辅助视角。每个视角捕获 RGB、Float32 深度、内外参和裁剪面信息。二维模型输出实例 mask 后，系统执行跨视角匹配、GPU Gaussian 分类、多视角融合和局部补全。
+
+\subsection{多视角 RGBD 捕获}
+
+对每个视角 $v$ 保存 $I_v,D_v,\mathbf{V}_v,\mathbf{P}_v$ 及近远裁剪面。每次改变相机姿态后重新排序 Gaussian，保证透明混合顺序与视角一致。深度来自 Gaussian alpha 加权视深度，而不是普通硬件深度缓冲。
+
+\subsection{跨视角实例关联}
+
+主视角实例 $M_0^k$ 的有效深度像素被反投影到世界坐标，再投影到辅助视角。定义方向性重叠
+\begin{equation}
+O(M_0^k,M_v^j)=
+\frac{|\Pi_{0\rightarrow v}(M_0^k)\cap M_v^j|}
+{|\Pi_{0\rightarrow v}(M_0^k)|}.
+\end{equation}
+仅在类别一致且 $O\geq\tau_o$ 时构造候选，并按重叠度执行一对一贪心匹配。当前 $\tau_o=0.15$；三视角模式要求实例至少获得两个视角支持。
+
+\subsection{Gaussian 中心投射与深度门控}
+
+Gaussian 中心在视角 $v$ 中的齐次投影为
+\begin{equation}
+\tilde{\mathbf{p}}_{iv}=\mathbf{P}_v\mathbf{V}_v
+\begin{bmatrix}\bm{\mu}_i\\1\end{bmatrix}.
+\end{equation}
+透视除法得到像素位置 $\mathbf{p}_{iv}$ 和相机深度 $z_{iv}$。定义
+\begin{equation}
+\Delta z_{iv}=z_{iv}-D_v(\mathbf{p}_{iv}).
+\end{equation}
+依据自适应容差 $\tau_z$ 分类：
+\begin{equation}
+q_{iv}=\begin{cases}
+\text{visible}, & |\Delta z_{iv}|\leq\tau_z,\\
+\text{front-mismatch}, & \Delta z_{iv}< -\tau_z,\\
+\text{occluded}, & \Delta z_{iv}>\tau_z.
+\end{cases}
+\end{equation}
+系统同时过滤低透明度、已删除和已锁定 Gaussian。GPU 输出 mask 命中、深度有效、可见、前置不一致、后置遮挡和低透明度状态位。
+
+\subsection{多视角证据融合}
+
+设 $n_i^+$ 为 Gaussian $g_i$ 的可见正票数，$n_i^-$ 为可见负票数。遮挡视角不参与负票。高可信种子定义为
+\begin{equation}
+y_i^{\mathrm{seed}}=
+\mathbb{I}(n_i^+\geq K\land n_i^-=0\land\alpha_i\geq\tau_\alpha).
+\end{equation}
+该策略避免把被其他表面遮挡的真实目标 Gaussian 错误删除。多视角融合完成后只提交一次选择操作，以减少状态刷新和编辑历史开销。
+
+\subsection{受限局部几何补全}
+
+设高可信种子为 $S$，候选集为 $C$。系统使用 \texttt{cKDTree} 建立局部邻接，通过邻域协方差矩阵的最小特征向量估计法向。候选 $g_j$ 被接纳需要满足
+\begin{align}
+\|\bm{\mu}_j-\bm{\mu}_i\|_2 &< r_{ij},\\
+\|\mathbf{c}_j-\mathbf{c}_i\|_2 &< \tau_c,\\
+\frac{\max(s_i,s_j)}{\min(s_i,s_j)} &< \tau_s,\\
+|\mathbf{n}_i^T\mathbf{n}_j| &> \tau_n.
+\end{align}
+候选还需至少两个已接纳邻居支持。当前算法迭代两轮，新增数量不超过种子数量的 25\%，用于抑制扩张至相邻对象。
+
+\subsection{对象图层与关系分析}
+
+融合结果通过编辑器统一选择历史写入，并可从原 Splat 分离为独立对象图层。系统保存 mask、相机矩阵、类别、实例编号、Gaussian 索引和源模型顶点数。图层可重命名、删除及单独导出。
+
+关系分析以用户定格相机为参考。对象中心使用坐标中位数，边界使用 5\% 和 95\% 分位数，以降低漂浮点影响。当前输出左、右、上、下、前、后、近邻和屏幕重叠关系。
+
+\section{系统实现}
+
+前端使用 React、TypeScript 和 Vite；服务端使用 FastAPI、Pydantic 和本地磁盘队列；三维编辑器基于 SuperSplat 和 PlayCanvas。重建使用 ZipSplat、PyTorch 和 CUDA；自动实例分割使用 torchvision Mask R-CNN ResNet50 FPN V2；场景清理使用 DBSCAN；精细补全使用 NumPy 和 SciPy。
+
+当前自动识别 19 类常见室内对象：杯子、椅子、瓶子、床、沙发、电视、笔记本电脑、键盘、鼠标、手机、书、盆栽、花瓶、时钟、冰箱、微波炉、烤箱、水槽和马桶。检测阈值为 0.40。桌子按当前实验设置排除。
+
+\section{初步实验}
+
+\subsection{环境与设置}
+
+当前验证环境为 Windows 11、Python 3.13.3、CUDA 12.8、PyTorch 2.11.0+cu128 和 NVIDIA GeForce RTX 4050 Laptop GPU（约 6.4 GB 显存）。浏览器测试视口为 $1280\times800$，语义捕获尺寸为 $1280\times767$，包含 3 个相机视角。
+
+\subsection{功能闭环结果}
+
+\begin{table}[t]
+\centering
+\caption{真实 PLY 上的功能闭环测试。}
+\label{tab:smoke}
+\begin{tabular}{lr}
+\toprule
+阶段 & 结果\\
+\midrule
+初始 Gaussian 选择数 & 0\\
+三维投射后选择数 & 1132\\
+快速补全新增 & 18\\
+精细补全新增 & 32\\
+分离前 Splat 数 & 1\\
+分离后 Splat 数 & 2\\
+撤销后 Splat 数 & 1\\
+页面、路由与 GLSL 错误 & 0\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+测试使用真实 PLY、真实相机矩阵、真实深度捕获和真实 GPU 投射流程，但二维 mask 为确定性测试输入。因此，表~\ref{tab:smoke} 只能证明投射、补全、分离和撤销链路可运行，不能证明二维检测精度或三维分割质量。
+
+场景关系定向测试包含瓶子和杯子两个对象，输出右前方、上方和近邻三条关系，并成功保存快照。该结果验证关系计算和持久化，不代表大规模关系识别准确率。
+
+后端完整回归曾达到 50 项通过；新增类别后的分割定向测试为 26 项通过。编辑器生产构建及真实浏览器冒烟测试通过。
+
+\section{正式实验方案}
+
+\subsection{数据与标注}
+
+计划采集卧室、客厅、厨房和办公区场景。每个场景包含原始图像、3DGS PLY、二维实例 mask 真值、Gaussian 级实例标签及完整、破损、遮挡和同类相邻等难例标签。初期目标为不少于 20 个场景和 100 个对象实例。
+
+\subsection{基线与指标}
+
+对比方法包括：单视角中心投影、单视角固定深度门控、三视角 mask 并集、三视角多数投票、本文可见性融合、本文融合加几何补全。
+
+主要指标为 Gaussian Precision、Recall、F1 和 IoU；补全阶段报告新增区域 Precision、缺失区域 Recall 和误扩张率；系统指标包括捕获、推理、投射和补全耗时、峰值显存及浏览器帧率。
+
+\subsection{消融实验}
+
+拟分别移除深度门控、透明度过滤、颜色约束、尺度约束和法向约束；比较遮挡作为未知或负票、单视角与多视角、固定与自适应深度容差，以及 10\%、25\%、50\% 和无限制增长上限。
+
+\section{局限与讨论}
+
+当前方法存在以下局限：自动识别受 COCO 固定类别限制；虚拟辅助视角的真实视差有限；alpha 加权深度不等同于严格表面深度；Gaussian 索引在重新导出和重排后不稳定；局部补全无法生成场景中不存在的新几何；现有功能实验仅覆盖单个主要场景。
+
+因此，当前可以陈述系统已完成二维 mask 到独立三维对象图层的技术闭环，但不能宣称方法优于现有语义 3DGS 方法，也不能宣称多视角融合或几何补全已在通用数据上显著提高三维 IoU。
+
+\section{结论}
+
+本文提出面向 3DGS 场景的多视角语义投射、深度可见性融合和受限几何补全框架，并完成可编辑、可持久化和可导出的对象图层原型。下一阶段将建立 Gaussian 级标注数据集，完成基线、消融和统计实验，以验证方法贡献并确定论文最终重点。
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

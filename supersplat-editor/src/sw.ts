@@ -3,7 +3,7 @@ import { version as appVersion } from '../package.json';
 // export default null
 declare let self: ServiceWorkerGlobalScope;
 
-const cacheName = `superSplat-v${appVersion}`;
+const cacheName = `superSplat-v${appVersion}-scene-understanding-1`;
 
 const cacheUrls = [
     './',
@@ -33,25 +33,35 @@ self.addEventListener('install', (event) => {
     event.waitUntil(
         caches.open(cacheName)
         .then((cache) => {
-            cache.addAll(cacheUrls);
+            return cache.addAll(cacheUrls);
         })
+        .then(() => self.skipWaiting())
     );
 });
 
-self.addEventListener('activate', () => {
+self.addEventListener('activate', (event) => {
     console.log(`activating v${appVersion}`);
 
     // delete the old caches once this one is activated
-    caches.keys().then((names) => {
-        for (const name of names) {
-            if (name !== cacheName) {
-                caches.delete(name);
-            }
-        }
-    });
+    event.waitUntil(caches.keys()
+    .then(names => Promise.all(names.filter(name => name !== cacheName).map(name => caches.delete(name))))
+    .then(() => self.clients.claim()));
 });
 
 self.addEventListener('fetch', (event) => {
+    const url = new URL(event.request.url);
+    const liveAsset = event.request.mode === 'navigate' ||
+        url.pathname.endsWith('/index.js') || url.pathname.endsWith('/index.css');
+    if (liveAsset) {
+        event.respondWith(fetch(event.request)
+        .then((response) => {
+            const copy = response.clone();
+            caches.open(cacheName).then(cache => cache.put(event.request, copy));
+            return response;
+        })
+        .catch(() => caches.match(event.request)));
+        return;
+    }
     event.respondWith(
         caches.match(event.request)
         .then(response => response ?? fetch(event.request))

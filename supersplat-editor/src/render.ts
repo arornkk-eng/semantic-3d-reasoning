@@ -108,6 +108,13 @@ const registerRenderEvents = (scene: Scene, events: Events) => {
         return scene.camera.captureDepthMap(width, height);
     });
 
+    events.function('render.depthData', async (
+        width: number,
+        height: number
+    ): Promise<{ depth: Float32Array; coverage: Float32Array }> => {
+        return scene.camera.captureDepthData(width, height);
+    });
+
     events.function('render.sortCurrentPose', async () => {
         const splats = (scene.getElementsByType(ElementType.splat) as Splat[]).filter(splat => splat.visible);
         await sortSplatsAndWait(scene, splats);

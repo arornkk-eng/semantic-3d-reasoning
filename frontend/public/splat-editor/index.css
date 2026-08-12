@@ -4058,6 +4058,108 @@
   border-color: #ff7a18;
 }
 
+#scene-understanding-tool {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 21;
+  pointer-events: none;
+}
+#scene-understanding-tool.active {
+  display: block;
+}
+#scene-understanding-tool.busy .scene-understanding-panel {
+  opacity: 0.75;
+}
+#scene-understanding-tool .scene-understanding-panel {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 390px;
+  max-height: calc(100% - 28px);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: rgba(25, 25, 25, 0.96);
+  color: white;
+  pointer-events: auto;
+}
+#scene-understanding-tool header, #scene-understanding-tool .understanding-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+#scene-understanding-tool header {
+  margin-bottom: 10px;
+  font-size: 15px;
+}
+#scene-understanding-tool section {
+  margin: 10px 0;
+}
+#scene-understanding-tool h4 {
+  margin: 0 0 6px;
+  color: #ccc;
+}
+#scene-understanding-tool button {
+  min-height: 26px;
+  border: 1px solid #555;
+  border-radius: 3px;
+  background: #333;
+  color: white;
+  cursor: pointer;
+}
+#scene-understanding-tool button.primary {
+  width: 100%;
+  border-color: #ff7a18;
+  background: #8a3d08;
+}
+#scene-understanding-tool button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+#scene-understanding-tool .understanding-list {
+  display: grid;
+  gap: 5px;
+  color: #aaa;
+}
+#scene-understanding-tool .understanding-row {
+  padding: 5px 0;
+  border-bottom: 1px solid #3c3c3c;
+  color: white;
+}
+#scene-understanding-tool .understanding-row span {
+  display: flex;
+  gap: 3px;
+}
+#scene-understanding-tool .layer-choice {
+  flex: 1;
+  text-align: left;
+}
+#scene-understanding-tool .layer-choice.selected {
+  border-color: #ff7a18;
+  background: #5f310e;
+}
+#scene-understanding-tool .snapshot-row {
+  align-items: flex-start;
+}
+#scene-understanding-tool .understanding-result {
+  padding: 8px;
+  min-height: 36px;
+  border-radius: 4px;
+  background: #181818;
+  color: #ddd;
+}
+#scene-understanding-tool .understanding-result p {
+  margin: 6px 0 0;
+}
+#scene-understanding-tool [data-role=status] {
+  display: block;
+  min-height: 18px;
+  color: #ffb37a;
+}
+
 * {
   font-size: 12px;
   -webkit-user-select: none;

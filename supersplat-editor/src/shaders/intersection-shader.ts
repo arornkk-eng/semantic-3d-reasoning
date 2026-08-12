@@ -29,10 +29,11 @@ const fragmentShader = /* glsl */ `
     // semantic mask + depth params. The uploaded R32F texture stores normalized
     // linear depth in R; negative values mean missing depth.
     uniform highp sampler2D semanticDepth;
+    uniform highp sampler2D semanticCoverage;
     uniform vec4 semantic_depth_params;             // width, height, near, far
     uniform mat4 semantic_viewMatrix;
     uniform vec4 semantic_params;                   // ortho, mask threshold, min opacity, transparency
-    uniform vec3 semantic_tolerance;                // normalized base, scale multiplier, normalized max
+    uniform vec4 semantic_tolerance;                // base, scale multiplier, max, min depth coverage
 
     // rect params
     uniform vec4 rect_params;                       // rect x, y, width, height
@@ -155,7 +156,9 @@ const fragmentShader = /* glsl */ `
                             depthSize - ivec2(1)
                         );
                         float depthSample = texelFetch(semanticDepth, depthUV, 0).r;
-                        if (depthSample >= 0.0 && depthSample <= 1.0) {
+                        float depthCoverage = texelFetch(semanticCoverage, depthUV, 0).r;
+                        if (depthSample >= 0.0 && depthSample <= 1.0 &&
+                            depthCoverage >= semantic_tolerance.w) {
                             semanticState |= SEMANTIC_DEPTH_VALID;
 
                             // Convert local one-sigma axes through both transform
