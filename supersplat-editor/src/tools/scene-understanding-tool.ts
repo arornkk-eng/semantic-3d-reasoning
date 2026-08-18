@@ -62,7 +62,9 @@ class SceneUnderstandingTool {
                 this.fetchJson(`/api/tasks/${this.taskId}/scene-snapshots`)
             ]);
             const known = new Set(this.layers.map(layer => layer.layer_id));
-            this.selected.forEach(id => { if (!known.has(id)) this.selected.delete(id); });
+            this.selected.forEach((id) => {
+                if (!known.has(id)) this.selected.delete(id);
+            });
             this.render();
             this.setStatus('');
         } catch (error) {
@@ -74,7 +76,7 @@ class SceneUnderstandingTool {
 
     private render() {
         const layerHost = this.root.querySelector('[data-role="layers"]');
-        layerHost?.replaceChildren(...this.layers.map(layer => {
+        layerHost?.replaceChildren(...this.layers.map((layer) => {
             const row = document.createElement('div');
             row.className = 'understanding-row';
             row.innerHTML = `<button class="layer-choice ${this.selected.has(layer.layer_id) ? 'selected' : ''}" data-action="toggle-layer" data-id="${layer.layer_id}">${this.selected.has(layer.layer_id) ? '☑' : '☐'} ${layer.name}</button><span><button data-action="rename-layer" data-id="${layer.layer_id}">重命名</button><button data-action="delete-layer" data-id="${layer.layer_id}">删除</button></span>`;
@@ -82,7 +84,7 @@ class SceneUnderstandingTool {
         }));
         if (!this.layers.length) layerHost.textContent = '暂无已保存语义图层';
         const snapshotHost = this.root.querySelector('[data-role="snapshots"]');
-        snapshotHost?.replaceChildren(...this.snapshots.map(snapshot => {
+        snapshotHost?.replaceChildren(...this.snapshots.map((snapshot) => {
             const row = document.createElement('div');
             row.className = 'understanding-row snapshot-row';
             row.innerHTML = `<strong>${snapshot.name}</strong><span><button data-action="view-snapshot" data-id="${snapshot.snapshot_id}">查看</button><button data-action="restore-snapshot" data-id="${snapshot.snapshot_id}">恢复视角</button><button data-action="rename-snapshot" data-id="${snapshot.snapshot_id}">重命名</button><button data-action="delete-snapshot" data-id="${snapshot.snapshot_id}">删除</button></span>`;
@@ -164,22 +166,29 @@ class SceneUnderstandingTool {
             const rotation = this.scene.camera.mainCamera.getRotation();
             const body = {
                 camera: {
-                    view_matrix: view, projection_matrix: projection,
+                    view_matrix: view,
+                    projection_matrix: projection,
                     position: [position.x, position.y, position.z],
                     rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
                     focal_point: [this.scene.camera.focalPoint.x, this.scene.camera.focalPoint.y, this.scene.camera.focalPoint.z],
-                    azim: this.scene.camera.azim, elevation: this.scene.camera.elevation,
-                    distance: this.scene.camera.distance, fov: this.scene.camera.fov
+                    azim: this.scene.camera.azim,
+                    elevation: this.scene.camera.elevation,
+                    distance: this.scene.camera.distance,
+                    fov: this.scene.camera.fov
                 },
                 objects: objects.map(item => ({
-                    layer_id: item.layerId, name: item.name, category: item.category,
+                    layer_id: item.layerId,
+                    name: item.name,
+                    category: item.category,
                     center_camera: item.centerCamera,
-                    bounds_min_camera: item.boundsMinCamera, bounds_max_camera: item.boundsMaxCamera
+                    bounds_min_camera: item.boundsMinCamera,
+                    bounds_max_camera: item.boundsMaxCamera
                 })),
                 relations: relations.map(item => ({
                     subject: item.subject, predicate: item.predicate, object: item.object, confidence: item.confidence
                 })),
-                functions, description
+                functions,
+                description
             };
             const snapshot = await this.fetchJson(`/api/tasks/${this.taskId}/scene-snapshots`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
@@ -219,6 +228,7 @@ class SceneUnderstandingTool {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name })
         });
         await this.refresh();
+        this.events.fire('semantic.layersChanged');
     }
 
     private async deleteLayer(id: string) {
@@ -230,6 +240,7 @@ class SceneUnderstandingTool {
         await this.fetchJson(`/api/tasks/${this.taskId}/layers/${id}`, { method: 'DELETE' });
         this.selected.delete(id);
         await this.refresh();
+        this.events.fire('semantic.layersChanged');
     }
 
     private async renameSnapshot(id: string) {
@@ -251,16 +262,20 @@ class SceneUnderstandingTool {
 
     private showDescription(name: string, lines: string[]) {
         const result = this.root.querySelector('[data-role="result"]');
-        if (result) result.replaceChildren(
-            Object.assign(document.createElement('strong'), { textContent: name }),
-            ...lines.map(line => Object.assign(document.createElement('p'), { textContent: line }))
-        );
+        if (result) {
+            result.replaceChildren(
+                Object.assign(document.createElement('strong'), { textContent: name }),
+                ...lines.map(line => Object.assign(document.createElement('p'), { textContent: line }))
+            );
+        }
     }
 
     private setBusy(value: boolean, status?: string) {
         this.busy = value;
         this.root.classList.toggle('busy', value);
-        this.root.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = value; });
+        this.root.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
+            button.disabled = value;
+        });
         if (status) this.setStatus(status);
     }
 

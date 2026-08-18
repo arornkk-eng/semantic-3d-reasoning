@@ -34,6 +34,12 @@ export default [
             'jsdoc/require-returns-type': 'off',
             'jsdoc/check-tag-names': 'off',
             'lines-between-class-members': 'off',
+            // TypeScript resolves browser types; ESLint's base no-undef rule does not.
+            'no-undef': 'off',
+            // The editor intentionally uses native confirmation dialogs and `void promise`
+            // for UI event handlers that must not return a promise to the event system.
+            'no-alert': 'off',
+            'no-void': 'off',
             'no-await-in-loop': 'off',
             'require-atomic-updates': 'off'
         }

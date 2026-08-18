@@ -59,7 +59,12 @@ def main() -> None:
 
         def route_api(route, request):
             path = request.url.split("?", 1)[0]
-            if path.endswith(f"/api/tasks/{TASK_ID}/layers"):
+            if path.endswith(f"/api/tasks/{TASK_ID}/layers/cleanup"):
+                route.fulfill(
+                    status=200, content_type="application/json",
+                    body='{"deleted":true,"layer_count":0,"snapshot_count":0}'
+                )
+            elif path.endswith(f"/api/tasks/{TASK_ID}/layers"):
                 route.fulfill(status=200, content_type="application/json", body=json.dumps(layers))
             elif path.endswith(f"/api/tasks/{TASK_ID}/scene-snapshots"):
                 if request.method == "GET":

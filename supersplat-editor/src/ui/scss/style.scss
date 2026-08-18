@@ -26,6 +26,7 @@
 @use 'tool.scss';
 @use 'segmentation-tool.scss';
 @use 'scene-understanding-tool.scss';
+@use 'semantic-label-overlay.scss';
 
 * {
     font-size: 12px;

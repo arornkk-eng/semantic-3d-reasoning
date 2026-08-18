@@ -1,4 +1,4 @@
-"""Interactive prompt segmentation and persistent 2D layer endpoints."""
+"""Interactive segmentation, semantic layer, and scene snapshot endpoints."""
 
 import io
 import json
@@ -14,7 +14,12 @@ from backend.core.schemas import (
     GeometricRefineMetadata,
     GeometricRefineResponse,
     LayerCreateRequest,
+    LayerMergeRequest,
+    LayerMergeResponse,
     LayerRenameRequest,
+    SceneSnapshotCreateRequest,
+    SceneSnapshotRenameRequest,
+    SceneSnapshotResponse,
     SegmentationLayerResponse,
     SegmentationPredictRequest,
     SegmentationPredictResponse,
@@ -24,11 +29,9 @@ from backend.core.schemas import (
     SemanticInstanceResponse,
     SemanticPredictResponse,
     SemanticViewMaskResponse,
-    SceneSnapshotCreateRequest,
-    SceneSnapshotRenameRequest,
-    SceneSnapshotResponse,
 )
 from backend.segmentation.geometric_refinement import refine_gaussian_selection
+from backend.segmentation.mesh_generation import LayerMeshError, generate_layer_mesh
 from backend.segmentation.semantic_service import semantic_service
 from backend.segmentation.service import (
     SegmentationBusyError,
@@ -40,9 +43,11 @@ from backend.storage.layer_store import (
     create_layer,
     delete_layer,
     get_gaussian_indices_path,
+    get_layer_metadata,
     get_mask_path,
     hash_task_scene_ply,
     list_layers,
+    merge_layer_observation,
     rename_layer,
 )
 from backend.storage.scene_snapshot_store import (
@@ -148,6 +153,25 @@ async def predict_semantic_view(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    offsets: dict[str, int] = {}
+    for layer in list_layers(result.task_id):
+        category = layer.get("category")
+        index = layer.get("instance_index")
+        if isinstance(category, str) and isinstance(index, int) and not isinstance(index, bool):
+            offsets[category] = max(offsets.get(category, 0), index)
+    requested_offsets = data.get("instance_index_offsets", {})
+    if isinstance(requested_offsets, dict):
+        for category, index in requested_offsets.items():
+            if (
+                isinstance(category, str)
+                and isinstance(index, int)
+                and not isinstance(index, bool)
+                and 0 <= index <= 100000
+            ):
+                offsets[category] = max(offsets.get(category, 0), index)
+    for item in result.instances.values():
+        category = item.category or ""
+        item.instance_index = (item.instance_index or 1) + offsets.get(category, 0)
     instances = [
         SemanticInstanceResponse(
             instance_id=item.session_id,
@@ -229,7 +253,7 @@ async def confirm_semantic_layers(result_id: str, request: SemanticConfirmReques
         layers = [
             create_layer(
                 item,
-                f"{item.category_zh} {item.instance_index}",
+                f"{item.category_zh}{item.instance_index}",
                 gaussian_index_sets=index_sets_by_instance[item.session_id],
                 source_ply_fingerprint=source_ply_fingerprint,
             )
@@ -369,6 +393,36 @@ async def update_segmentation_layer(task_id: str, layer_id: str, request: LayerR
         raise HTTPException(status_code=404, detail="语义图层不存在") from exc
 
 
+@router.post(
+    "/tasks/{task_id}/layers/{layer_id}/observations",
+    response_model=LayerMergeResponse,
+)
+async def add_layer_observation(task_id: str, layer_id: str, request: LayerMergeRequest):
+    try:
+        result = semantic_service.get(request.result_id)
+        instance = result.instances[request.instance_id]
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="识别结果不存在或已过期") from exc
+    if result.task_id != task_id or instance.task_id != task_id:
+        raise HTTPException(status_code=409, detail="识别结果与任务不匹配")
+    try:
+        _validate_source_vertex_counts(task_id, request.gaussian_index_sets)
+        layer, added_count, total_count = merge_layer_observation(
+            task_id, layer_id, instance, request.gaussian_index_sets
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="目标语义图层不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    semantic_service.close(request.result_id)
+    return LayerMergeResponse(
+        layer=layer,
+        added_count=added_count,
+        total_count=total_count,
+        observation_count=layer["observation_count"],
+    )
+
+
 @router.get("/tasks/{task_id}/layers/{layer_id}/delete-impact")
 async def get_layer_delete_impact(task_id: str, layer_id: str):
     if not any(item["layer_id"] == layer_id for item in list_layers(task_id)):
@@ -384,6 +438,21 @@ async def remove_segmentation_layer(task_id: str, layer_id: str):
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="语义图层不存在") from exc
     return {"deleted": True, "layer_count": 1, "snapshot_count": snapshot_count}
+
+
+@router.post("/tasks/{task_id}/layers/cleanup")
+async def cleanup_segmentation_layers(task_id: str):
+    layers = list_layers(task_id)
+    snapshot_count = 0
+    for layer in layers:
+        layer_id = layer["layer_id"]
+        snapshot_count += delete_snapshots_using_layer(task_id, layer_id)
+        delete_layer(task_id, layer_id)
+    return {
+        "deleted": True,
+        "layer_count": len(layers),
+        "snapshot_count": snapshot_count,
+    }
 
 
 @router.get(
@@ -441,3 +510,31 @@ async def get_layer_gaussian_indices(task_id: str, layer_id: str, source_index: 
     if path is None:
         raise HTTPException(status_code=404, detail="Gaussian indices 不存在")
     return FileResponse(path, media_type="application/octet-stream", filename=path.name)
+
+
+@router.post("/tasks/{task_id}/layers/{layer_id}/mesh")
+async def create_layer_mesh(task_id: str, layer_id: str):
+    if get_layer_metadata(task_id, layer_id) is None:
+        raise HTTPException(status_code=404, detail="语义图层不存在")
+    try:
+        path, report = await run_in_threadpool(generate_layer_mesh, task_id, layer_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="语义图层不存在") from exc
+    except LayerMeshError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    headers = {
+        "X-Mesh-Vertices": str(report.get("vertices", 0)),
+        "X-Mesh-Triangles": str(report.get("triangles", 0)),
+        "X-Mesh-Collision-Triangles": str(report.get("collision_triangles", 0)),
+        "X-Mesh-Safe-For-Collision": str(bool(report.get("safe_for_collision", False))).lower(),
+        "Access-Control-Expose-Headers": (
+            "X-Mesh-Vertices, X-Mesh-Triangles, X-Mesh-Collision-Triangles, "
+            "X-Mesh-Safe-For-Collision"
+        ),
+    }
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=f"{layer_id}-visual-mesh.ply",
+        headers=headers,
+    )

@@ -99,8 +99,12 @@ const projectPoint = (matrix: ArrayLike<number>, point: Point3): [number, number
 
 const corners = (min: Point3, max: Point3): Point3[] => {
     const result: Point3[] = [];
-    for (const x of [min[0], max[0]]) for (const y of [min[1], max[1]]) for (const z of [min[2], max[2]]) {
-        result.push([x, y, z]);
+    for (const x of [min[0], max[0]]) {
+        for (const y of [min[1], max[1]]) {
+            for (const z of [min[2], max[2]]) {
+                result.push([x, y, z]);
+            }
+        }
     }
     return result;
 };
@@ -120,7 +124,7 @@ const buildSceneObject = (
     const screenX = screenCorners.map(point => point[0]);
     const screenY = screenCorners.map(point => point[1]);
     const centerCamera = transformPoint(viewMatrix, geometry.centerWorld);
-    return {
+    const result: SceneObject = {
         layerId,
         name,
         category,
@@ -130,6 +134,7 @@ const buildSceneObject = (
         screenCenter: projectPoint(projectionMatrix, centerCamera),
         screenBounds: [Math.min(...screenX), Math.min(...screenY), Math.max(...screenX), Math.max(...screenY)]
     };
+    return result;
 };
 
 const analyzeRelations = (objects: SceneObject[]): SceneRelation[] => {
@@ -137,37 +142,35 @@ const analyzeRelations = (objects: SceneObject[]): SceneRelation[] => {
     const add = (a: SceneObject, predicate: string, b: SceneObject, confidence: number) => {
         result.push({ subject: a.layerId, predicate, object: b.layerId, confidence: Math.min(1, confidence) });
     };
-    for (let i = 0; i < objects.length; i++) for (let j = i + 1; j < objects.length; j++) {
-        const a = objects[i];
-        const b = objects[j];
-        const width = Math.max(0.02, ((a.screenBounds[2] - a.screenBounds[0]) + (b.screenBounds[2] - b.screenBounds[0])) / 2);
-        const height = Math.max(0.02, ((a.screenBounds[3] - a.screenBounds[1]) + (b.screenBounds[3] - b.screenBounds[1])) / 2);
-        const depthSize = Math.max(1e-5, ((a.boundsMaxCamera[2] - a.boundsMinCamera[2]) + (b.boundsMaxCamera[2] - b.boundsMinCamera[2])) / 2);
-        const dx = a.screenCenter[0] - b.screenCenter[0];
-        const dy = a.screenCenter[1] - b.screenCenter[1];
-        const depthA = -a.centerCamera[2];
-        const depthB = -b.centerCamera[2];
-        const depthDelta = depthB - depthA;
-        const horizontal = Math.abs(dx) > width * 0.25 ? (dx < 0 ? 'left' : 'right') : '';
-        const longitudinal = Math.abs(depthDelta) > depthSize * 0.25 ? (depthDelta > 0 ? 'front' : 'behind') : '';
-        const predicate = horizontal && longitudinal ?
-            (longitudinal === 'behind' ? `${horizontal}_behind` : `${horizontal}_front_of`) :
-            horizontal ? `${horizontal}_of` : longitudinal === 'front' ? 'front_of' : longitudinal;
-        if (predicate) add(a, predicate, b, Math.max(Math.abs(dx) / (width * 0.25), Math.abs(depthDelta) / (depthSize * 0.25)) / 2);
-        if (Math.abs(dy) > height * 0.25) add(a, dy > 0 ? 'above' : 'below', b, Math.abs(dy) / (height * 0.5));
-
-        const gaps = [0, 1, 2].map(axis => Math.max(
-            0,
-            a.boundsMinCamera[axis] - b.boundsMaxCamera[axis],
-            b.boundsMinCamera[axis] - a.boundsMaxCamera[axis]
-        ));
-        const gap = Math.hypot(...gaps);
-        const diagonalA = Math.hypot(...[0, 1, 2].map(axis => a.boundsMaxCamera[axis] - a.boundsMinCamera[axis]));
-        const diagonalB = Math.hypot(...[0, 1, 2].map(axis => b.boundsMaxCamera[axis] - b.boundsMinCamera[axis]));
-        const screenOverlap = a.screenBounds[0] <= b.screenBounds[2] && a.screenBounds[2] >= b.screenBounds[0] &&
+    for (let i = 0; i < objects.length; i++) {
+        for (let j = i + 1; j < objects.length; j++) {
+            const a = objects[i];
+            const b = objects[j];
+            const width = Math.max(0.02, ((a.screenBounds[2] - a.screenBounds[0]) + (b.screenBounds[2] - b.screenBounds[0])) / 2);
+            const depthSize = Math.max(1e-5, ((a.boundsMaxCamera[2] - a.boundsMinCamera[2]) + (b.boundsMaxCamera[2] - b.boundsMinCamera[2])) / 2);
+            const dx = a.screenCenter[0] - b.screenCenter[0];
+            const depthA = -a.centerCamera[2];
+            const depthB = -b.centerCamera[2];
+            const depthDelta = depthB - depthA;
+            const horizontal = Math.abs(dx) > width * 0.25 ? (dx < 0 ? 'left' : 'right') : '';
+            const longitudinal = Math.abs(depthDelta) > depthSize * 0.25 ? (depthDelta > 0 ? 'front' : 'behind') : '';
+            const predicate = horizontal && longitudinal ?
+                (longitudinal === 'behind' ? `${horizontal}_behind` : `${horizontal}_front_of`) :
+                horizontal ? `${horizontal}_of` : longitudinal === 'front' ? 'front_of' : longitudinal;
+            if (predicate) add(a, predicate, b, Math.max(Math.abs(dx) / (width * 0.25), Math.abs(depthDelta) / (depthSize * 0.25)) / 2);
+            const gaps = [0, 1, 2].map(axis => Math.max(
+                0,
+                a.boundsMinCamera[axis] - b.boundsMaxCamera[axis],
+                b.boundsMinCamera[axis] - a.boundsMaxCamera[axis]
+            ));
+            const gap = Math.hypot(...gaps);
+            const diagonalA = Math.hypot(...[0, 1, 2].map(axis => a.boundsMaxCamera[axis] - a.boundsMinCamera[axis]));
+            const diagonalB = Math.hypot(...[0, 1, 2].map(axis => b.boundsMaxCamera[axis] - b.boundsMinCamera[axis]));
+            const screenOverlap = a.screenBounds[0] <= b.screenBounds[2] && a.screenBounds[2] >= b.screenBounds[0] &&
             a.screenBounds[1] <= b.screenBounds[3] && a.screenBounds[3] >= b.screenBounds[1];
-        if (gap === 0 && screenOverlap) add(a, 'overlap', b, 1);
-        else if (gap < Math.max(diagonalA, diagonalB) * 0.35) add(a, 'near', b, 1 - gap / Math.max(diagonalA, diagonalB, 1e-5));
+            if (gap === 0 && screenOverlap) add(a, 'overlap', b, 1);
+            else if (gap < Math.max(diagonalA, diagonalB) * 0.35) add(a, 'near', b, 1 - gap / Math.max(diagonalA, diagonalB, 1e-5));
+        }
     }
     return result;
 };
@@ -176,9 +179,14 @@ const relationText = (relation: SceneRelation, names: Map<string, string>) => {
     const a = names.get(relation.subject);
     const b = names.get(relation.object);
     const labels: Record<string, string> = {
-        left_of: '左侧', right_of: '右侧', front_of: '前方', behind: '后方',
-        left_front_of: '左前方', right_front_of: '右前方', left_behind: '左后方', right_behind: '右后方',
-        above: '上方', below: '下方'
+        left_of: '左侧',
+        right_of: '右侧',
+        front_of: '前方',
+        behind: '后方',
+        left_front_of: '左前方',
+        right_front_of: '右前方',
+        left_behind: '左后方',
+        right_behind: '右后方'
     };
     if (relation.predicate === 'near') return `${a}与${b}彼此靠近。`;
     if (relation.predicate === 'overlap') return `${a}与${b}存在重叠。`;

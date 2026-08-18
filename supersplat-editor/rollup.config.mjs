@@ -1,3 +1,4 @@
+import { rmSync } from 'node:fs';
 import path from 'path';
 
 import alias from '@rollup/plugin-alias';
@@ -24,6 +25,9 @@ const ENGINE_DIR = path.resolve(`node_modules/playcanvas/build/playcanvas${BUILD
 const PCUI_DIR = path.resolve('node_modules/@playcanvas/pcui');
 const HREF = process.env.BASE_HREF || '';
 
+// Rollup does not remove stale chunks or maps from an output directory.
+rmSync(path.resolve('dist'), { recursive: true, force: true });
+
 const outputHeader = () => {
     const BLUE_OUT = '\x1b[34m';
     const BOLD_OUT = '\x1b[1m';
@@ -44,7 +48,7 @@ const application = {
     output: {
         dir: 'dist',
         format: 'esm',
-        sourcemap: true
+        sourcemap: BUILD_TYPE === 'debug'
     },
     plugins: [
         copyAndWatch({
@@ -76,7 +80,7 @@ const application = {
         image({ dom: false }),
         json(),
         scss({
-            sourceMap: true,
+            sourceMap: BUILD_TYPE === 'debug',
             runtime: sass,
             processor: (css) => {
                 return postcss([autoprefixer])
@@ -103,7 +107,7 @@ const serviceWorker = {
     output: {
         dir: 'dist',
         format: 'esm',
-        sourcemap: true
+        sourcemap: BUILD_TYPE === 'debug'
     },
     plugins: [
         resolve(),

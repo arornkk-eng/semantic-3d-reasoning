@@ -66,6 +66,9 @@ async def delete_task_endpoint(task_id: str):
 
     返回: 删除成功确认。
     """
+    meta = get_task_meta(task_id)
+    if meta is not None and meta.get("status") in {"waiting", "running"}:
+        raise HTTPException(status_code=409, detail="请先取消运行中或排队中的任务")
     deleted = delete_task(task_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"任务不存在: {task_id}")

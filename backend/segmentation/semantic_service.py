@@ -21,9 +21,10 @@ from backend.core.config import (
     LAYER_DIR,
     MAX_SEGMENTATION_IMAGE_BYTES,
     MAX_SEGMENTATION_IMAGE_SIDE,
+    MAX_SEMANTIC_INSTANCES,
     SEMANTIC_DETECTOR,
 )
-from backend.core.gpu_coordinator import finish_segmentation, try_begin_segmentation
+from backend.core.gpu_coordinator import begin_segmentation, finish_segmentation
 from backend.segmentation.service import (
     SegmentationBusyError,
     SegmentationSession,
@@ -68,6 +69,7 @@ TARGETS = {
     "door": ("door", "门"),
     "window": ("window", "窗"),
     "bookshelf": ("bookshelf", "书架"),
+    "car": ("car", "汽车"),
 }
 OPEN_VOCAB_PROMPTS = {value[0].replace("_", " "): value for value in TARGETS.values()}
 SCORE_THRESHOLD = 0.40
@@ -116,7 +118,12 @@ def _target_instances(prediction: dict, categories: list[str]) -> list[_TargetIn
                 bbox=[int(value) for value in box.detach().cpu().tolist()],
             )
         )
-    return result
+    return _limit_instances(result)
+
+
+def _limit_instances(instances: list[_TargetInstance]) -> list[_TargetInstance]:
+    """Keep the highest-confidence instances within the editor display limit."""
+    return sorted(instances, key=lambda item: -item.score)[:MAX_SEMANTIC_INSTANCES]
 
 
 def _normalize_grounded_label(label: str) -> tuple[str, str] | None:
@@ -155,7 +162,7 @@ def _grounded_detections(result: dict, width: int, height: int) -> list[_Grounde
         ):
             continue
         kept.append(detection)
-    return kept
+    return kept[:MAX_SEMANTIC_INSTANCES]
 
 
 def _box_iou(a: list[int], b: list[int]) -> float:
@@ -173,9 +180,13 @@ def _detect_with_grounding_dino(images: list[Image.Image]) -> list[list[_Grounde
 
     local_only = SEMANTIC_DETECTOR != "grounding_dino"
     processor = AutoProcessor.from_pretrained(GROUNDING_DINO_MODEL, local_files_only=local_only)
-    model = GroundingDinoForObjectDetection.from_pretrained(
-        GROUNDING_DINO_MODEL, local_files_only=local_only
-    ).eval().cuda()
+    model = (
+        GroundingDinoForObjectDetection.from_pretrained(
+            GROUNDING_DINO_MODEL, local_files_only=local_only
+        )
+        .eval()
+        .cuda()
+    )
     labels = list(OPEN_VOCAB_PROMPTS)
     prompts = [labels for _ in images]
     inputs = processor(images=images, text=prompts, return_tensors="pt").to("cuda")
@@ -494,7 +505,7 @@ class SemanticSegmentationService:
     ) -> SemanticResult:
         with self._lock:
             result_id = uuid.uuid4().hex
-            if not try_begin_segmentation(result_id):
+            if not begin_segmentation(result_id):
                 raise SegmentationBusyError("GPU 正在执行其他任务")
             try:
                 support_payloads = support_image_bytes or []
@@ -572,8 +583,10 @@ class SemanticSegmentationService:
                             for view_image, instances in zip(images, all_instances, strict=True)
                         ]
 
-                center_instances = all_instances[0]
-                support_instances_by_view = all_instances[1:]
+                center_instances = _limit_instances(all_instances[0])
+                support_instances_by_view = [
+                    _limit_instances(instances) for instances in all_instances[1:]
+                ]
                 if sam_predictor is None and SEMANTIC_DETECTOR == "grounding_dino":
                     raise SegmentationUnavailableError("Grounding DINO requires SAM 2")
 

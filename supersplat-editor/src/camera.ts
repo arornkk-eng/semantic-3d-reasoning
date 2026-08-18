@@ -118,6 +118,8 @@ class Camera extends Element {
     renderOverlays = true;
 
     updateCameraUniforms: () => void;
+    private previousUserTransform = new Mat4();
+    private hasPreviousUserTransform = false;
 
     constructor() {
         super(ElementType.camera);
@@ -623,6 +625,14 @@ class Camera extends Element {
             this.fitClippingPlanes(this.mainCamera.getLocalPosition(), this.mainCamera.forward);
 
             this.displayTransform.copy(this.mainCamera.getWorldTransform());
+            const currentTransform = this.displayTransform.data;
+            const previousTransform = this.previousUserTransform.data;
+            const moved = this.hasPreviousUserTransform && currentTransform.some(
+                (value, index) => Math.abs(value - previousTransform[index]) > 1e-5
+            );
+            this.previousUserTransform.copy(this.displayTransform);
+            this.hasPreviousUserTransform = true;
+            if (moved) this.scene.events.fire('camera.moved');
         }
 
         const { camera } = this.mainCamera;

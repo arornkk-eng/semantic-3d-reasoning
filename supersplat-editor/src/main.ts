@@ -6,6 +6,7 @@ import { CommandQueue } from './command-queue';
 import { registerDocEvents } from './doc';
 import { EditHistory } from './edit-history';
 import { registerEditorEvents } from './editor';
+import { ElementType } from './element';
 import { Events } from './events';
 import { initFileHandler } from './file-handler';
 import { registerIframeApi } from './iframe-api';
@@ -17,6 +18,7 @@ import { getSceneConfig } from './scene-config';
 import { registerSelectionEvents } from './selection';
 import { registerSequenceEvents } from './sequence';
 import { ShortcutManager } from './shortcut-manager';
+import { Splat } from './splat';
 import { registerTimelineEvents } from './timeline';
 import { BoxSelection } from './tools/box-selection';
 import { BrushSelection } from './tools/brush-selection';
@@ -27,11 +29,14 @@ import { MeasureTool } from './tools/measure-tool';
 import { MoveTool } from './tools/move-tool';
 import { OrientTool } from './tools/orient-tool';
 import { PolygonSelection } from './tools/polygon-selection';
+import { RealtimeDetectionOverlay } from './tools/realtime-detection-overlay';
 import { RectSelection } from './tools/rect-selection';
 import { RotateTool } from './tools/rotate-tool';
 import { ScaleTool } from './tools/scale-tool';
-import { SegmentationTool } from './tools/segmentation-tool';
 import { SceneUnderstandingTool } from './tools/scene-understanding-tool';
+import { SegmentationTool } from './tools/segmentation-tool';
+import { SemanticLabelOverlay } from './tools/semantic-label-overlay';
+import { initializeSemanticLayerSession } from './tools/semantic-layer-session';
 import { SphereSelection } from './tools/sphere-selection';
 import { ToolManager } from './tools/tool-manager';
 import { registerTrackManagerEvents } from './track-manager';
@@ -40,8 +45,6 @@ import { BoundDimensionsOverlay } from './ui/bound-dimensions-overlay';
 import { EditorUI } from './ui/editor';
 import { i18n } from './ui/localization';
 import { registerSelectCursor } from './ui/select-cursor';
-import { Splat } from './splat';
-import { ElementType } from './element';
 
 
 declare global {
@@ -242,6 +245,10 @@ const main = async () => {
         context: maskContext
     };
 
+    // Semantic layers are temporary to one editor page session. Clear leftovers
+    // before any semantic UI loads and use sendBeacon for close/reload cleanup.
+    await initializeSemanticLayerSession();
+
     // tool manager
     const toolManager = new ToolManager(events);
     toolManager.register('rectSelection', new RectSelection(events, editorUI.toolsContainer.dom));
@@ -261,6 +268,8 @@ const main = async () => {
     toolManager.register('sceneUnderstanding', new SceneUnderstandingTool(events, scene, editorUI.canvasContainer.dom));
 
     const boundDimensionsOverlay = new BoundDimensionsOverlay(events, scene, editorUI.canvasContainer);
+    void new RealtimeDetectionOverlay(events, scene, editorUI.canvasContainer.dom);
+    void new SemanticLabelOverlay(events, scene, editorUI.canvasContainer.dom);
 
     editorUI.toolsContainer.dom.appendChild(maskCanvas);
 
@@ -268,6 +277,7 @@ const main = async () => {
     registerSelectCursor(events, editorUI.toolsContainer.dom);
 
     window.scene = scene;
+    (window as any).__triggerRealtimeDetection = () => events.fire('camera.moved');
 
     // 兼容旧调用方。选择状态必须通过 SelectOp 提交，才能进入撤销历史。
     (window as any).__selectGaussians = (indices: ArrayLike<number>, explicitTarget?: Splat) => {

@@ -104,11 +104,11 @@ const registerRenderEvents = (scene: Scene, events: Events) => {
     // dialogs to disable resolutions the gpu cannot produce
     events.function('render.maxTextureSize', () => scene.graphicsDevice.maxTextureSize);
 
-    events.function('render.depth', async (width: number, height: number): Promise<Float32Array> => {
+    events.function('render.depth', (width: number, height: number): Promise<Float32Array> => {
         return scene.camera.captureDepthMap(width, height);
     });
 
-    events.function('render.depthData', async (
+    events.function('render.depthData', (
         width: number,
         height: number
     ): Promise<{ depth: Float32Array; coverage: Float32Array }> => {

@@ -67,7 +67,8 @@ def delete_snapshot(task_id: str, snapshot_id: str) -> None:
 
 def snapshots_using_layer(task_id: str, layer_id: str) -> list[dict]:
     return [
-        item for item in list_snapshots(task_id)
+        item
+        for item in list_snapshots(task_id)
         if any(obj["layer_id"] == layer_id for obj in item["objects"])
     ]
 

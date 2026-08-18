@@ -37,8 +37,8 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 # 上传限制
 MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
-# 张数放开到 200:重建前由视图选择自动挑出最优组合(超出部分自动筛选)
-MAX_FILE_COUNT = 200
+# ZipSplat 输入上限。超出时拒绝上传，绝不静默筛选或删除用户照片。
+MAX_FILE_COUNT = 12
 
 # 视频上传限制
 MAX_VIDEO_SIZE_BYTES = 500 * 1024 * 1024  # 每段视频 500 MB
@@ -46,7 +46,7 @@ MAX_VIDEO_COUNT = 10
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv"}
 
 # 经固定样本对照实验确认的重建参数
-DEFAULT_NUM_VIEWS = 6
+MAX_RECONSTRUCTION_IMAGES = 12
 SCENE_ALPHA_THRESHOLD = 0.02
 SCENE_OUTLIER_PERCENTILE = 1
 SPLAT_SCALE_FACTOR = 1.0
@@ -65,6 +65,7 @@ GROUNDING_DINO_TEXT_THRESHOLD = float(os.environ.get("GROUNDING_DINO_TEXT_THRESH
 SEGMENTATION_SESSION_TTL_SECONDS = 10 * 60
 MAX_SEGMENTATION_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_SEGMENTATION_IMAGE_SIDE = 4096
+MAX_SEMANTIC_INSTANCES = max(1, int(os.environ.get("MAX_SEMANTIC_INSTANCES", "7")))
 
 # ---- CORS（跨域）配置 ----
 # 从环境变量读取允许的前端来源（逗号分隔）；默认仅放行本地开发前端。

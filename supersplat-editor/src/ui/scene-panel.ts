@@ -95,6 +95,23 @@ class ScenePanel extends Container {
         });
         splatListContainer.append(splatList);
 
+        const semanticHeader = new Container({
+            class: ['panel-header', 'semantic-layer-header']
+        });
+        semanticHeader.append(new Label({
+            text: '\uE132',
+            class: 'panel-header-icon'
+        }));
+        semanticHeader.append(new Label({
+            text: '语义图层标签',
+            class: 'panel-header-label'
+        }));
+
+        const semanticList = document.createElement('div');
+        semanticList.id = 'semantic-layer-label-list';
+        semanticList.className = 'semantic-layer-label-list';
+        semanticList.textContent = '暂无语义图层';
+
         const transformHeader = new Container({
             class: 'panel-header'
         });
@@ -114,6 +131,8 @@ class ScenePanel extends Container {
 
         this.append(sceneHeader);
         this.append(splatListContainer);
+        this.append(semanticHeader);
+        this.dom.appendChild(semanticList);
         this.append(transformHeader);
         this.append(new Transform(events));
         this.append(new Element({

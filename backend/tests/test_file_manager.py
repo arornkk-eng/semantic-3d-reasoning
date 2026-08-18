@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import io
+
 import pytest
+from fastapi import UploadFile
 
 from backend.core import config as core_config
 from backend.storage import file_manager
@@ -52,6 +55,29 @@ def test_output_path_traversal_blocked(tmp_dirs):
     assert file_manager.get_output_path("abc", "../secret.txt") is None
     # 绝对路径穿越被拒绝
     assert file_manager.get_output_path("abc", "/etc/passwd") is None
+
+
+def test_task_id_traversal_blocked(tmp_dirs):
+    with pytest.raises(ValueError, match="invalid characters"):
+        file_manager.get_task_meta("../outside")
+    with pytest.raises(ValueError, match="invalid characters"):
+        file_manager.delete_task("..\\outside")
+
+
+def test_upload_filename_traversal_blocked(tmp_dirs):
+    upload = UploadFile(filename="../outside.jpg", file=io.BytesIO(b"image"))
+    with pytest.raises(ValueError, match="plain filename"):
+        file_manager.save_uploads("abc", [upload])
+    assert not (tmp_dirs["upload"].parent / "outside.jpg").exists()
+
+
+def test_duplicate_upload_filename_blocked(tmp_dirs):
+    uploads = [
+        UploadFile(filename="photo.jpg", file=io.BytesIO(b"one")),
+        UploadFile(filename="PHOTO.JPG", file=io.BytesIO(b"two")),
+    ]
+    with pytest.raises(ValueError, match="duplicate upload filename"):
+        file_manager.save_uploads("abc", uploads)
 
 
 def test_list_all_task_ids(tmp_dirs):

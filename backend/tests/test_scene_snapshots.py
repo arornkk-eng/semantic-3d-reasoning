@@ -42,14 +42,10 @@ def test_snapshot_auto_name_rename_and_sequence(tmp_path, monkeypatch):
 
     assert first["name"] == "视角分析1"
     assert second["name"] == "视角分析2"
-    renamed = scene_snapshot_store.rename_snapshot(
-        "task1", first["snapshot_id"], "入口视角"
-    )
+    renamed = scene_snapshot_store.rename_snapshot("task1", first["snapshot_id"], "入口视角")
     assert renamed["name"] == "入口视角"
     scene_snapshot_store.delete_snapshot("task1", second["snapshot_id"])
-    assert [item["name"] for item in scene_snapshot_store.list_snapshots("task1")] == [
-        "入口视角"
-    ]
+    assert [item["name"] for item in scene_snapshot_store.list_snapshots("task1")] == ["入口视角"]
 
 
 def test_layer_rename_and_snapshot_cascade_delete(tmp_path, monkeypatch):

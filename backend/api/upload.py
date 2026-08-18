@@ -41,8 +41,7 @@ async def upload_images(
 ):
     """上传多张图片，创建重建任务，返回 task_id。
 
-    限制：单文件 ≤ 50MB 总大小，格式限 jpg/png/bmp/webp，最多 200 张
-    （超出目标视图数时，重建前自动筛选最优组合）。
+    限制：总大小 ≤ 100MB，格式限 jpg/png/bmp/webp，最多 12 张。
     """
     # ---- 校验 mode ----
     if mode not in ("object", "scene"):
@@ -85,7 +84,10 @@ async def upload_images(
 
     # ---- 保存 ----
     task_id = uuid.uuid4().hex[:12]  # 12 位短 ID，方便 URL 使用
-    save_uploads(task_id, files)
+    try:
+        save_uploads(task_id, files)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     create_task_meta(task_id, filenames, mode=mode)
 
     # ---- 入队 ----
@@ -154,14 +156,19 @@ async def upload_videos(
             )
 
     # ---- 校验参数 ----
-    if max_frames < 5 or max_frames > 200:
-        raise HTTPException(status_code=400, detail="max_frames 应在 5~200 之间")
+    if max_frames < 5 or max_frames > MAX_FILE_COUNT:
+        raise HTTPException(
+            status_code=400, detail=f"max_frames 应在 5~{MAX_FILE_COUNT} 之间"
+        )
     if sample_interval < 0.1 or sample_interval > 10.0:
         raise HTTPException(status_code=400, detail="sample_interval 应在 0.1~10.0 秒之间")
 
     # ---- 保存视频 ----
     task_id = uuid.uuid4().hex[:12]
-    save_videos(task_id, videos)
+    try:
+        save_videos(task_id, videos)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     create_video_task_meta(
         task_id,
         video_filenames,

@@ -29,36 +29,6 @@
     </head>
 
     <body>
-        <!-- 返回查看器按钮 -->
-        <div id="viewerOverlay" style="position:fixed;bottom:20px;right:20px;z-index:10000">
-            <button id="viewBtn" style="
-                background:rgba(30,30,30,0.85);color:#fff;border:1px solid rgba(255,255,255,0.2);
-                border-radius:24px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;
-                box-shadow:0 4px 16px rgba(0,0,0,0.4);transition:background 0.2s;
-                display:flex;align-items:center;gap:8px;
-            " onmouseover="this.style.background='rgba(50,50,50,0.9)'" onmouseout="this.style.background='rgba(30,30,30,0.85)'">
-                🔍 返回查看
-            </button>
-        </div>
-
-        <script>
-        (function() {
-            var params = new URL(location.href).searchParams;
-            var contentUrl = params.get('content') || sessionStorage.getItem('__autoload_url');
-            var taskId = params.get('task_id');
-
-            // ---- 返回按钮 ----
-            var btn = document.getElementById('viewBtn');
-            if (contentUrl) {
-                btn.addEventListener('click', function() {
-                    window.location.href = '/splat-viewer/index.html?content=' + encodeURIComponent(contentUrl) + '&hpr=1&aa';
-                });
-            } else {
-                btn.style.display = 'none';
-            }
-        })();
-        </script>
-
         <script type="module" src="./index.js"></script>
     </body>
 </html>

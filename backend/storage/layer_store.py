@@ -122,6 +122,8 @@ def create_layer(
         "gaussian_indices": gaussian_indices,
         "source_ply_sha256": source_ply_sha256,
         "source_ply_sha256_status": source_ply_sha256_status,
+        "observation_count": 1,
+        "observations": [],
     }
     (directory / "layer.json").write_text(
         json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -149,6 +151,80 @@ def rename_layer(task_id: str, layer_id: str, name: str) -> dict:
     return data
 
 
+def merge_layer_observation(
+    task_id: str,
+    layer_id: str,
+    session: SegmentationSession,
+    gaussian_index_sets: list[SemanticGaussianIndexSet],
+) -> tuple[dict, int, int]:
+    """Union one new camera observation into an existing semantic layer."""
+    path = _layer_metadata_path(task_id, layer_id)
+    if path is None:
+        raise KeyError(layer_id)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("category") and session.category and data["category"] != session.category:
+        raise ValueError("识别类别与目标图层不一致")
+
+    directory = path.parent
+    entries = {item["source_index"]: item for item in data.get("gaussian_indices", [])}
+    added_count = 0
+    total_count = 0
+    added_by_source: list[dict] = []
+    for index_set in gaussian_index_sets:
+        entry = entries.get(index_set.source_index)
+        if entry and entry.get("vertex_count") != index_set.source_vertex_count:
+            raise ValueError("目标图层与当前 Gaussian 资源版本不一致")
+        existing: set[int] = set()
+        if entry:
+            existing_path = directory / entry["file"]
+            if existing_path.is_file():
+                existing = set(np.fromfile(existing_path, dtype="<u4").tolist())
+        incoming = set(index_set.indices)
+        added = sorted(incoming - existing)
+        merged = sorted(existing | incoming)
+        filename = (
+            entry["file"] if entry else f"gaussian-indices-source-{index_set.source_index}.u32"
+        )
+        np.asarray(merged, dtype="<u4").tofile(directory / filename)
+        if entry is None:
+            entry = {
+                "instance_id": data.get("layer_id", layer_id),
+                "source_index": index_set.source_index,
+                "encoding": "uint32-le",
+                "vertex_count": index_set.source_vertex_count,
+                "file": filename,
+                "url": f"/api/tasks/{task_id}/layers/{layer_id}/gaussian-indices/{index_set.source_index}",
+            }
+            data.setdefault("gaussian_indices", []).append(entry)
+            entries[index_set.source_index] = entry
+        entry["count"] = len(merged)
+        added_count += len(added)
+        total_count += len(merged)
+        added_by_source.append({"source_index": index_set.source_index, "indices": added})
+
+    observation_number = int(data.get("observation_count", 1)) + 1
+    observation_mask = f"observation-{observation_number}-mask.png"
+    (directory / observation_mask).write_bytes(session.mask_png)
+    data.setdefault("observations", []).append(
+        {
+            "observation_index": observation_number,
+            "created_at": datetime.now(UTC).isoformat(),
+            "category": session.category,
+            "score": session.score,
+            "camera_view_matrix": session.view_matrix,
+            "camera_projection_matrix": session.projection_matrix,
+            "viewport_width": session.viewport_width,
+            "viewport_height": session.viewport_height,
+            "mask_file": observation_mask,
+            "added_gaussian_indices": added_by_source,
+        }
+    )
+    data["observation_count"] = observation_number
+    data["updated_at"] = datetime.now(UTC).isoformat()
+    _write_json(path, data)
+    return data, added_count, total_count
+
+
 def delete_layer(task_id: str, layer_id: str) -> None:
     path = _layer_metadata_path(task_id, layer_id)
     if path is None:
@@ -168,9 +244,7 @@ def _layer_metadata_path(task_id: str, layer_id: str) -> Path | None:
 
 def _write_json(path: Path, data: dict) -> None:
     temporary = path.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temporary.replace(path)
 
 
@@ -210,3 +284,15 @@ def get_gaussian_indices_path(
     if path.parent != directory.resolve():
         return None
     return path if path.is_file() else None
+
+
+def get_layer_metadata(task_id: str, layer_id: str) -> tuple[dict, Path] | None:
+    """Return validated layer metadata and its private storage directory."""
+    path = _layer_metadata_path(task_id, layer_id)
+    if path is None:
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data, path.parent

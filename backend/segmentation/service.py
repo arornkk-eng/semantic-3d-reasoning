@@ -19,7 +19,7 @@ from backend.core.config import (
     SAM2_MODEL_CONFIG,
     SEGMENTATION_SESSION_TTL_SECONDS,
 )
-from backend.core.gpu_coordinator import finish_segmentation, try_begin_segmentation
+from backend.core.gpu_coordinator import begin_segmentation, finish_segmentation
 
 
 class SegmentationBusyError(RuntimeError):
@@ -135,7 +135,7 @@ class SegmentationService:
             if len(image_bytes) > MAX_SEGMENTATION_IMAGE_BYTES:
                 raise ValueError("截图超过 20 MB")
             session_id = uuid.uuid4().hex
-            if not try_begin_segmentation(session_id):
+            if not begin_segmentation(session_id):
                 raise SegmentationBusyError("GPU 正在执行其他任务")
             try:
                 image = Image.open(io.BytesIO(image_bytes)).convert("RGB")

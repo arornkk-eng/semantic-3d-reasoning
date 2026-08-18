@@ -731,7 +731,12 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
         });
     });
 
-    const performSelectionFunc = async (func: 'duplicate' | 'separate', newName?: string) => {
+    const performSelectionFunc = async (
+        func: 'duplicate' | 'separate',
+        newName?: string,
+        mutateCopy?: (copy: Splat) => void,
+        originalName?: string
+    ) => {
         const splats = selectedSplats();
 
         if (splats.length !== 1 || splats[0].numSelected === 0) {
@@ -756,7 +761,41 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
             const filename = `${removeExtension(splat.filename)}.ply`;
             const fileSystem = new MappedReadFileSystem();
             fileSystem.addFile(filename, blob);
-            const copy = await scene.assetLoader.load(filename, fileSystem);
+            let copy = await scene.assetLoader.load(filename, fileSystem);
+            let originalCopy: Splat | undefined;
+            if (mutateCopy && originalName) {
+                originalCopy = copy;
+                originalCopy._name = originalName;
+                originalCopy.visible = false;
+
+                const cuboidFileSystem = new MappedReadFileSystem();
+                const cuboidFilename = `cuboid-${filename}`;
+                cuboidFileSystem.addFile(cuboidFilename, blob);
+                copy = await scene.assetLoader.load(cuboidFilename, cuboidFileSystem);
+            }
+            if (mutateCopy) {
+                mutateCopy(copy);
+
+                // Loading creates GPU resources immediately. Serialize the mutated
+                // CPU data and load it again so the rendered buffers contain the
+                // cuboid positions, scales and colors rather than the old selection.
+                const mutatedFs = new MemoryFileSystem();
+                await writeSplatFile([copy], {
+                    maxSHBands: 3
+                }, 'ply', 'mutated.ply', {}, mutatedFs);
+                const mutatedData = mutatedFs.results.get('mutated.ply');
+                if (!mutatedData) {
+                    copy.destroy();
+                    throw new Error('Failed to serialize mutated Splat');
+                }
+
+                const mutatedBlob = new Blob([mutatedData as BlobPart], { type: 'application/octet-stream' });
+                const mutatedFileSystem = new MappedReadFileSystem();
+                mutatedFileSystem.addFile(filename, mutatedBlob);
+                const renderedCopy = await scene.assetLoader.load(filename, mutatedFileSystem);
+                copy.destroy();
+                copy = renderedCopy;
+            }
             if (newName?.trim()) {
                 // The copy is not in a Scene yet, so the public setter cannot
                 // emit its rename event. Scene insertion will publish this name.
@@ -764,14 +803,18 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
             }
 
             if (func === 'separate') {
-                await editHistory.add(new MultiOp([
+                const ops = [
                     new DeleteSelectionOp(splat),
+                    ...(originalCopy ? [new AddSplatOp(scene, originalCopy)] : []),
                     new AddSplatOp(scene, copy)
-                ]));
+                ];
+                await editHistory.add(new MultiOp(ops));
             } else {
                 await editHistory.add(new AddSplatOp(scene, copy));
             }
+            return originalCopy ? { cuboid: copy, original: originalCopy } : copy;
         }
+        return undefined;
     };
 
     // duplicate the current selection
@@ -787,6 +830,73 @@ const registerEditorEvents = (events: Events, editHistory: EditHistory, scene: S
     // caller can wait until serialization, scene insertion and edit history are complete.
     events.function('edit.separateSelection', (name?: string) => {
         return performSelectionFunc('separate', name);
+    });
+
+    events.function('edit.replaceSelectionWithCuboid', (name?: string) => {
+        const semanticName = name?.replace(/^黑色长方体-/, '') || '识别物体';
+        return performSelectionFunc('separate', name, (copy) => {
+            const data = copy.splatData;
+            const x = data.getProp('x') as Float32Array;
+            const y = data.getProp('y') as Float32Array;
+            const z = data.getProp('z') as Float32Array;
+            const count = data.numSplats;
+            if (!count) return;
+
+            const robustRange = (values: Float32Array) => {
+                const sorted = Array.from(values).sort((a, b) => a - b);
+                const margin = count >= 30 ? 0.03 : 0;
+                return [
+                    sorted[Math.floor((sorted.length - 1) * margin)],
+                    sorted[Math.ceil((sorted.length - 1) * (1 - margin))]
+                ];
+            };
+            const [minX, maxX] = robustRange(x);
+            const [minY, maxY] = robustRange(y);
+            const [minZ, maxZ] = robustRange(z);
+            const dx = Math.max(maxX - minX, 1e-5);
+            const dy = Math.max(maxY - minY, 1e-5);
+            const dz = Math.max(maxZ - minZ, 1e-5);
+            const surfaceArea = 2 * (dx * dy + dx * dz + dy * dz);
+            const gaussianSize = Math.max(Math.sqrt(surfaceArea / count) * 0.55, Math.min(dx, dy, dz) * 0.01, 1e-5);
+            const logScale = Math.log(gaussianSize);
+            const blackDc = -0.5 / 0.28209479177387814;
+            const scale0 = data.getProp('scale_0') as Float32Array;
+            const scale1 = data.getProp('scale_1') as Float32Array;
+            const scale2 = data.getProp('scale_2') as Float32Array;
+            const red = data.getProp('f_dc_0') as Float32Array;
+            const green = data.getProp('f_dc_1') as Float32Array;
+            const blue = data.getProp('f_dc_2') as Float32Array;
+            const opacity = data.getProp('opacity') as Float32Array;
+            const rot0 = data.getProp('rot_0') as Float32Array;
+            const rot1 = data.getProp('rot_1') as Float32Array;
+            const rot2 = data.getProp('rot_2') as Float32Array;
+            const rot3 = data.getProp('rot_3') as Float32Array;
+            const rest = Array.from({ length: 9 }, (_, index) => data.getProp(`f_rest_${index}`) as Float32Array);
+
+            for (let i = 0; i < count; i++) {
+                const face = i % 6;
+                const faceIndex = Math.floor(i / 6);
+                const faceCount = Math.ceil((count - face) / 6);
+                const columns = Math.max(1, Math.ceil(Math.sqrt(faceCount)));
+                const rows = Math.max(1, Math.ceil(faceCount / columns));
+                const u = ((faceIndex % columns) + 0.5) / columns;
+                const v = (Math.floor(faceIndex / columns) + 0.5) / rows;
+                if (face < 2) {
+                    x[i] = face === 0 ? minX : maxX; y[i] = minY + u * dy; z[i] = minZ + v * dz;
+                } else if (face < 4) {
+                    x[i] = minX + u * dx; y[i] = face === 2 ? minY : maxY; z[i] = minZ + v * dz;
+                } else {
+                    x[i] = minX + u * dx; y[i] = minY + v * dy; z[i] = face === 4 ? minZ : maxZ;
+                }
+                scale0[i] = logScale; scale1[i] = logScale; scale2[i] = logScale;
+                red[i] = blackDc; green[i] = blackDc; blue[i] = blackDc;
+                opacity[i] = 6;
+                rot0[i] = 1; rot1[i] = 0; rot2[i] = 0; rot3[i] = 0;
+                rest.forEach((values) => {
+                    if (values) values[i] = 0;
+                });
+            }
+        }, `原始模型-${semanticName}`);
     });
 
     events.on('scene.reset', () => {

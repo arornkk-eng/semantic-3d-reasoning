@@ -6,6 +6,7 @@
 
 import logging
 import multiprocessing
+import queue as queue_module
 import threading
 import traceback
 
@@ -20,6 +21,7 @@ _current_task_id: str | None = None
 _current_proc: multiprocessing.Process | None = None
 _cancel_flag = False
 _lock = threading.Lock()
+_pose_queue: queue_module.Queue[str] = queue_module.Queue()
 
 
 def start_worker(queue: TaskQueue) -> None:
@@ -31,7 +33,57 @@ def start_worker(queue: TaskQueue) -> None:
         name="zipsplat-worker",
     )
     t.start()
+    pose_thread = threading.Thread(
+        target=_pose_worker_loop,
+        daemon=True,
+        name="pycolmap-pose-worker",
+    )
+    pose_thread.start()
     logger.info("Worker 线程已启动")
+
+
+def _pose_worker_loop() -> None:
+    """Serial post-processing queue; pose failure never invalidates the PLY."""
+    while True:
+        task_id = _pose_queue.get()
+        proc = multiprocessing.Process(
+            target=_run_pose_in_subprocess,
+            args=(task_id,),
+            daemon=True,
+        )
+        proc.start()
+        proc.join()
+        _pose_queue.task_done()
+
+
+def _run_pose_in_subprocess(task_id: str) -> None:
+    from backend.pose_estimation.pycolmap_service import estimate_camera_poses
+    from backend.storage.file_manager import get_task_meta as _get
+    from backend.storage.file_manager import save_task_meta as _save
+
+    meta = _get(task_id)
+    if not meta:
+        return
+    meta["pose_estimation"] = {"status": "running"}
+    _save(task_id, meta)
+    try:
+        result = estimate_camera_poses(task_id)
+        meta = _get(task_id)
+        if meta:
+            meta["pose_estimation"] = {
+                "status": "completed",
+                "registered_images": result["registered_images"],
+                "input_images": result["input_images"],
+                "mean_reprojection_error_px": result["mean_reprojection_error_px"],
+                "cameras": "cameras.json",
+                "aligned_to_zipsplat": False,
+            }
+            _save(task_id, meta)
+    except Exception as exc:
+        meta = _get(task_id)
+        if meta:
+            meta["pose_estimation"] = {"status": "failed", "error": str(exc)}
+            _save(task_id, meta)
 
 
 def cancel_current(task_id: str) -> bool:
@@ -141,6 +193,7 @@ def _worker_loop(queue: TaskQueue) -> None:
                     f"任务完成: {task_id}, "
                     f"高斯球: {meta.get('output', {}).get('num_gaussians', '?')}"
                 )
+                _pose_queue.put(task_id)
             elif meta["status"] == "failed":
                 logger.error(f"任务失败: {task_id}, 错误: {meta.get('error', '?')[:120]}")
             else:
@@ -245,8 +298,7 @@ def _run_in_subprocess(task_id: str) -> None:
                 "ply_size": result["ply_size"],
                 "num_gaussians": result["num_gaussians"],
             }
-            if result.get("view_selection"):
-                meta["view_selection"] = result["view_selection"]
+            meta["pose_estimation"] = {"status": "queued"}
             meta["error"] = None
             _save(task_id, meta)
             sub_logger.info(f"重建成功: {task_id}, 高斯球={result['num_gaussians']:,}")

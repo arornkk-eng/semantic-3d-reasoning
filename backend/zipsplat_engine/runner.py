@@ -7,7 +7,7 @@ import logging
 import sys
 
 from backend.core.config import (
-    DEFAULT_NUM_VIEWS,
+    MAX_RECONSTRUCTION_IMAGES,
     OUTPUT_DIR,
     PROJECT_ROOT,
     SCENE_ALPHA_THRESHOLD,
@@ -22,18 +22,13 @@ if str(_ZIPSPLAT_ROOT) not in sys.path:
     sys.path.insert(0, str(_ZIPSPLAT_ROOT))
 
 
-def run_reconstruction(
-    task_id: str, mode: str = "object", num_views: int = DEFAULT_NUM_VIEWS
-) -> dict:
+def run_reconstruction(task_id: str, mode: str = "object") -> dict:
     """执行 ZipSplat 3D 重建：图片 → 高斯模型 → PLY。
 
     Args:
         task_id: 任务 ID
         mode: 重建模式 — \"object\"（物体模式，DBSCAN 剔除背景）
               \"scene\"（场景模式，保留全部高斯球）
-        num_views: 自动视图选择目标数。输入图片超过该数时，先自动挑出
-             最优组合（质量过滤 + SfM 位姿贪心/CLIP 回退）再重建；
-             设为 0 跳过选择。
     """
     import torch
     from zipsplat import ZipSplat, load_image
@@ -50,36 +45,11 @@ def run_reconstruction(
     if not image_paths:
         raise FileNotFoundError(f"输入目录无图片: {input_dir}")
 
-    # ---- 自动视图选择:输入过多时挑出最优组合 ----
-    view_sel = None
-    if num_views > 0 and len(image_paths) > num_views:
-        _sys = __import__("sys")
-        script_dir = PROJECT_ROOT / "ZipSplat-Demo" / "scripts"
-        if str(script_dir) not in _sys.path:
-            _sys.path.insert(0, str(script_dir))
-        from pick_views import select_best_views
-
-        logger.info(f"任务 {task_id}: 输入 {len(image_paths)} 张 > {num_views}, 自动视图选择中...")
-        try:
-            sel = select_best_views(input_dir, num=num_views)
-            chosen = sel["chosen"]
-            if chosen:
-                chosen_set = set(chosen)
-                image_paths = [p for p in image_paths if p.name in chosen_set]
-                view_sel = {
-                    "method": sel["method"],
-                    "total": sel["total"],
-                    "passed": sel["passed"],
-                    "registered": sel["registered"],
-                    "selected": len(image_paths),
-                }
-                logger.info(
-                    f"任务 {task_id}: 视图选择({sel['method']}) "
-                    f"{sel['total']}→{sel['passed']}→{len(image_paths)} 张, "
-                    f"SfM 注册 {sel['registered']}/{sel['passed']}"
-                )
-        except Exception as e:
-            logger.warning(f"任务 {task_id}: 视图选择失败({e}), 回退使用全部 {len(image_paths)} 张")
+    if len(image_paths) > MAX_RECONSTRUCTION_IMAGES:
+        raise ValueError(
+            f"ZipSplat 最多接收 {MAX_RECONSTRUCTION_IMAGES} 张图片，"
+            f"当前 {len(image_paths)} 张；系统不会自动删除照片"
+        )
 
     logger.info(f"任务 {task_id}: {len(image_paths)} 张图片")
 
@@ -168,7 +138,6 @@ def run_reconstruction(
     return {
         "num_gaussians": num_gs_clean,
         "ply_size": ply_size,
-        "view_selection": view_sel,
     }
 
 

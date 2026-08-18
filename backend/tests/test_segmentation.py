@@ -27,6 +27,7 @@ from backend.segmentation.semantic_service import (
     _grounded_detections,
     _GroundedDetection,
     _interior_prompt,
+    _limit_instances,
     _match_instances,
     _multiview_overlap,
     _refine_instances_with_sam,
@@ -42,6 +43,32 @@ from backend.storage import layer_store
 def test_gpu_exclusion():
     assert gpu_coordinator.try_begin_segmentation("session-a")
     assert not gpu_coordinator.try_begin_reconstruction()
+
+
+def test_cleanup_segmentation_layers(monkeypatch):
+    deleted_layers: list[tuple[str, str]] = []
+    deleted_snapshots: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        api,
+        "list_layers",
+        lambda task_id: [{"layer_id": "layer1"}, {"layer_id": "layer2"}],
+    )
+    monkeypatch.setattr(
+        api,
+        "delete_layer",
+        lambda task_id, layer_id: deleted_layers.append((task_id, layer_id)),
+    )
+    monkeypatch.setattr(
+        api,
+        "delete_snapshots_using_layer",
+        lambda task_id, layer_id: deleted_snapshots.append((task_id, layer_id)) or 1,
+    )
+
+    result = asyncio.run(api.cleanup_segmentation_layers("task1"))
+
+    assert result == {"deleted": True, "layer_count": 2, "snapshot_count": 2}
+    assert deleted_layers == [("task1", "layer1"), ("task1", "layer2")]
+    assert deleted_snapshots == [("task1", "layer1"), ("task1", "layer2")]
     gpu_coordinator.finish_segmentation("session-a")
     assert gpu_coordinator.try_begin_reconstruction()
     assert not gpu_coordinator.try_begin_segmentation("session-b")
@@ -57,6 +84,18 @@ def test_mask_encoding_roundtrip_shape_and_bbox():
     assert rle["size"] == [4, 5]
     assert sum(rle["counts"]) == 20
     assert bbox == [2, 1, 4, 2]
+
+
+def test_semantic_instances_are_limited_to_seven_by_score():
+    mask = np.ones((1, 1), dtype=bool)
+    instances = [
+        _TargetInstance("bottle", "bottle", score / 10, mask, [0, 0, 0, 0]) for score in range(10)
+    ]
+
+    limited = _limit_instances(instances)
+
+    assert len(limited) == 7
+    assert [item.score for item in limited] == pytest.approx([0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3])
 
 
 def test_parse_metadata(monkeypatch):
@@ -145,6 +184,51 @@ def test_semantic_confirm_request_remains_backward_compatible():
 def test_layer_create_request_remains_backward_compatible():
     request = LayerCreateRequest(session_id="sam-session", name="Object")
     assert request.gaussian_index_sets == []
+
+
+def test_merge_layer_observation_unions_indices(tmp_path, monkeypatch):
+    monkeypatch.setattr(layer_store, "LAYER_DIR", tmp_path)
+    mask = np.ones((2, 2), dtype=bool)
+    png, rle, bbox = _encode_mask(mask)
+    session = SegmentationSession(
+        session_id="bottle-view-1",
+        task_id="abc123",
+        source_ply="scene.ply",
+        width=2,
+        height=2,
+        viewport_width=2,
+        viewport_height=2,
+        view_matrix=[1.0] * 16,
+        projection_matrix=[1.0] * 16,
+        created_at=0.0,
+        touched_at=0.0,
+        mask_png=png,
+        mask_rle=rle,
+        bbox=bbox,
+        points=[],
+        score=0.9,
+        category="bottle",
+        category_zh="瓶子",
+        instance_index=1,
+    )
+    original = SemanticGaussianIndexSet(
+        instance_id="bottle-view-1", source_index=0, source_vertex_count=5, indices=[0, 2]
+    )
+    layer = layer_store.create_layer(session, "瓶子1", [original])
+    second = SemanticGaussianIndexSet(
+        instance_id="bottle-view-2", source_index=0, source_vertex_count=5, indices=[2, 3, 4]
+    )
+    session.session_id = "bottle-view-2"
+
+    merged, added, total = layer_store.merge_layer_observation(
+        "abc123", layer["layer_id"], session, [second]
+    )
+
+    index_path = layer_store.get_gaussian_indices_path("abc123", layer["layer_id"], 0)
+    assert np.fromfile(index_path, dtype="<u4").tolist() == [0, 2, 3, 4]
+    assert (added, total) == (2, 4)
+    assert merged["observation_count"] == 2
+    assert merged["observations"][0]["added_gaussian_indices"][0]["indices"] == [3, 4]
 
 
 def test_layer_create_request_accepts_matching_index_sets():
@@ -383,6 +467,7 @@ def test_fixed_semantic_categories():
         "door": ("door", "门"),
         "window": ("window", "窗"),
         "bookshelf": ("bookshelf", "书架"),
+        "car": ("car", "汽车"),
     }
     assert SCORE_THRESHOLD == 0.40
 
@@ -629,9 +714,7 @@ def test_grounding_dino_boxes_are_segmented_by_sam(monkeypatch):
             mask[0, 1:5, 1:5] = True
             return mask, np.asarray([0.9]), None
 
-    instances = _segment_grounded_detections(
-        Image.new("RGB", (6, 6)), [detection], Predictor()
-    )
+    instances = _segment_grounded_detections(Image.new("RGB", (6, 6)), [detection], Predictor())
 
     assert len(instances) == 1
     assert instances[0].category == "bed"

@@ -5,16 +5,25 @@
 """
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api import ply_viewer, result, segmentation, task, upload
+from backend.api import (
+    ply_viewer,
+    realtime_detection,
+    result,
+    segmentation,
+    task,
+    upload,
+)
 from backend.core.config import LAYER_DIR, OUTPUT_DIR, TASK_DIR, UPLOAD_DIR, resolve_cors
 from backend.core.queue_manager import TaskQueue
 from backend.core.schemas import HealthResponse
 from backend.core.worker import start_worker
+from backend.detection.realtime_service import realtime_detection_service
 
 # 日志
 logging.basicConfig(
@@ -38,6 +47,11 @@ async def lifespan(app: FastAPI):
         logger.info(f"已恢复 {recovered} 个未完成任务")
 
     start_worker(task_queue)
+    threading.Thread(
+        target=realtime_detection_service.warmup,
+        name="realtime-yolo-warmup",
+        daemon=True,
+    ).start()
     logger.info("ZipSplat-Demo 后端已就绪")
     yield
     # 关闭钩子：Worker 为守护线程，进程退出即终止，无需额外清理
@@ -106,3 +120,4 @@ app.include_router(task.router, prefix="/api")
 app.include_router(result.router, prefix="/api")
 app.include_router(ply_viewer.router, prefix="/api")
 app.include_router(segmentation.router, prefix="/api")
+app.include_router(realtime_detection.router, prefix="/api")

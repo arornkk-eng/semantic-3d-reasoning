@@ -92,6 +92,7 @@ class SegmentationLayerResponse(BaseModel):
     category: str | None = None
     category_zh: str | None = None
     instance_index: int | None = None
+    observation_count: int = 1
 
 
 class SemanticViewMaskResponse(BaseModel):
@@ -116,6 +117,29 @@ class SemanticInstanceResponse(BaseModel):
 class SemanticPredictResponse(BaseModel):
     result_id: str
     instances: list[SemanticInstanceResponse]
+
+
+class RealtimeDetectionBox(BaseModel):
+    category: str
+    score: float = Field(ge=0, le=1)
+    bbox: list[float] = Field(min_length=4, max_length=4)
+
+    @model_validator(mode="after")
+    def validate_bbox(self):
+        x1, y1, x2, y2 = self.bbox
+        if any(value < 0 or value > 1 for value in self.bbox):
+            raise ValueError("实时检测 bbox 必须是 0 至 1 的归一化坐标")
+        if x2 < x1 or y2 < y1:
+            raise ValueError("实时检测 bbox 坐标顺序无效")
+        return self
+
+
+class RealtimeDetectionResponse(BaseModel):
+    frame_id: int = Field(ge=0)
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+    inference_ms: float = Field(ge=0)
+    detections: list[RealtimeDetectionBox]
 
 
 class GeometricRefineMetadata(BaseModel):
@@ -190,6 +214,31 @@ def _validate_gaussian_index_set_collection(
         raise ValueError("Gaussian indices 总数超出限制")
 
 
+class LayerMergeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    result_id: str = Field(min_length=1, max_length=64)
+    instance_id: str = Field(min_length=1, max_length=64)
+    gaussian_index_sets: list[SemanticGaussianIndexSet] = Field(
+        min_length=1,
+        max_length=MAX_GAUSSIAN_INDEX_SETS,
+    )
+
+    @model_validator(mode="after")
+    def validate_index_sets(self):
+        if any(item.instance_id != self.instance_id for item in self.gaussian_index_sets):
+            raise ValueError("Gaussian index set 与增量观测实例不匹配")
+        _validate_gaussian_index_set_collection(self.gaussian_index_sets)
+        return self
+
+
+class LayerMergeResponse(BaseModel):
+    layer: SegmentationLayerResponse
+    added_count: int
+    total_count: int
+    observation_count: int
+
+
 class LayerCreateRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=80)
@@ -259,9 +308,16 @@ class SceneSnapshotRelation(BaseModel):
     model_config = ConfigDict(extra="forbid")
     subject: str = Field(min_length=1, max_length=32)
     predicate: Literal[
-        "left_of", "right_of", "front_of", "behind",
-        "left_front_of", "right_front_of", "left_behind", "right_behind",
-        "above", "below", "near", "overlap",
+        "left_of",
+        "right_of",
+        "front_of",
+        "behind",
+        "left_front_of",
+        "right_front_of",
+        "left_behind",
+        "right_behind",
+        "near",
+        "overlap",
     ]
     object: str = Field(min_length=1, max_length=32)
     confidence: float = Field(ge=0, le=1)

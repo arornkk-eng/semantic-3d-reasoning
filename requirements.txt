@@ -16,3 +16,6 @@ pycolmap==4.1.1
 -e ./ZipSplat-main
 
 # SAM 2 is installed separately from official source; see README.md.
+
+# Moving-camera preview detection
+ultralytics>=8.3,<9

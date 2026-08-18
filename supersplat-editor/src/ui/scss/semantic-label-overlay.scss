@@ -1,0 +1,125 @@
+@use 'colors.scss' as *;
+
+.semantic-layer-header {
+    border-top: 1px solid $bcg-darker;
+}
+
+.semantic-layer-label-list {
+    max-height: 180px;
+    overflow: auto;
+    padding: 4px;
+    color: $text-secondary;
+}
+
+.semantic-layer-label-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 24px auto;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 2px;
+
+    label {
+        display: flex;
+        gap: 5px;
+        min-width: 0;
+        color: $text-primary;
+        cursor: pointer;
+    }
+
+    label span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    input[type='color'] {
+        width: 22px;
+        height: 20px;
+        padding: 0;
+        border: 0;
+        background: none;
+        cursor: pointer;
+    }
+
+    button {
+        padding: 3px 6px;
+        border: 1px solid $bcg-darker;
+        border-radius: 4px;
+        background: $bcg-dark;
+        color: $text-secondary;
+        cursor: pointer;
+    }
+}
+
+#semantic-label-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 8;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.semantic-label-lines {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+
+    line {
+        stroke-width: 1.5;
+        vector-effect: non-scaling-stroke;
+    }
+}
+
+.semantic-3d-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    padding: 5px 10px;
+    border: 1px solid var(--label-color);
+    border-left-width: 4px;
+    border-radius: 5px;
+    background: rgba(15, 23, 42, 0.88);
+    color: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    white-space: nowrap;
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.semantic-label-card {
+    position: absolute;
+    width: 230px;
+    padding: 11px;
+    border: 1px solid rgba(148, 163, 184, 0.5);
+    border-radius: 7px;
+    background: rgba(15, 23, 42, 0.96);
+    color: white;
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+    pointer-events: auto;
+
+    strong {
+        font-size: 14px;
+    }
+
+    dl {
+        display: grid;
+        grid-template-columns: 68px 1fr;
+        gap: 5px 8px;
+        margin: 9px 0;
+    }
+
+    dt { color: #94a3b8; }
+    dd { margin: 0; user-select: text; }
+    button {
+        width: 100%;
+        padding: 5px;
+        border: 1px solid #475569;
+        border-radius: 4px;
+        background: #1e293b;
+        color: white;
+        cursor: pointer;
+    }
+}

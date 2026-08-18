@@ -1,59 +1,22 @@
 import { FILTER_NEAREST, Mat4, Quat, Texture, Vec3 } from 'playcanvas';
 
-import { SemanticIntersectState } from '../data-processor';
 import { SH_C0, sigmoid } from '../color-grade';
+import { SemanticIntersectState } from '../data-processor';
 import { ElementType } from '../element';
 import { Events } from '../events';
 import { Scene } from '../scene';
 import { Splat } from '../splat';
 import { State } from '../splat-state';
+import { currentTaskId, readApiResponse } from './segmentation-api';
+import type {
+    CapturedView,
+    ProjectedSplat,
+    PromptPoint,
+    SavedLayer,
+    SemanticInstance,
+    SemanticViewMask
+} from './segmentation-types';
 import { expandSemanticGaussianSeeds } from './semantic-gaussian-expansion';
-
-type PromptPoint = { x: number; y: number; label: 0 | 1 };
-type SemanticViewMask = { view_index: number; mask_url: string };
-type SemanticInstance = {
-    instance_id: string;
-    category: string;
-    category_zh: string;
-    instance_index: number;
-    score: number;
-    mask_url: string;
-    selected: boolean;
-    depth_coverage?: number;
-    view_support?: number;
-    view_count?: number;
-    view_masks?: SemanticViewMask[];
-};
-
-type CapturedView = {
-    image: Blob;
-    depth: Blob;
-    depthValues: Float32Array;
-    depthCoverage: Float32Array;
-    metadata: {
-        task_id: string | null;
-        source_ply: string;
-        viewport_width: number;
-        viewport_height: number;
-        capture_width: number;
-        capture_height: number;
-        near: number;
-        far: number;
-        projection: 'orthographic' | 'perspective';
-        fov: number;
-        camera_position: number[];
-        camera_rotation: number[];
-        view_matrix: number[];
-        projection_matrix: number[];
-    };
-};
-
-type ProjectedSplat = {
-    splat: Splat;
-    indices: Uint32Array;
-    expansionCandidates: Uint32Array;
-    expansionApplied: boolean;
-};
 
 class SegmentationTool {
     private events: Events;
@@ -65,6 +28,7 @@ class SegmentationTool {
     private status: HTMLSpanElement;
     private nameInput: HTMLInputElement;
     private layerInfo: HTMLSpanElement;
+    private targetLayer: HTMLSelectElement;
     private sessionId: string | null = null;
     private points: PromptPoint[] = [];
     private label: 0 | 1 = 1;
@@ -76,6 +40,8 @@ class SegmentationTool {
     private promptView: CapturedView | null = null;
     private promptMaskUrl: string | null = null;
     private projectedInstances = new Map<string, ProjectedSplat[]>();
+    private savedLayers: SavedLayer[] = [];
+    private committedInstanceMax = new Map<string, number>();
 
     constructor(events: Events, scene: Scene, host: HTMLElement) {
         this.events = events;
@@ -96,7 +62,12 @@ class SegmentationTool {
                 <button data-action="expand3d">补全3D</button>
                 <button data-action="refine3d">精细补全</button>
                 <button data-action="separate3d">生成独立3D图层</button>
+                <button data-action="cuboid3d">黑色长方体替换</button>
                 <button data-action="confirm" class="primary">保存所选图层</button>
+                <select data-role="target-layer"><option value="">选择已有图层</option></select>
+                <button data-action="merge" class="primary">补全已有图层</button>
+                <button data-action="generate-mesh">生成 Mesh</button>
+                <button data-action="delete-layer">删除已有图层</button>
                 <button data-action="cancel">取消</button>
                 <span data-role="status">正在识别杯子、椅子、瓶子</span>
             </div>`;
@@ -105,12 +76,13 @@ class SegmentationTool {
         this.status = this.root.querySelector('[data-role="status"]');
         this.nameInput = this.root.querySelector('[data-role="name"]');
         this.layerInfo = this.root.querySelector('[data-role="layer-info"]');
+        this.targetLayer = this.root.querySelector('[data-role="target-layer"]');
         document.addEventListener('pointerdown', this.onDocumentPointerDown, true);
         this.host.appendChild(this.root);
     }
 
     activate = () => {
-        const taskId = new URLSearchParams(location.search).get('task_id');
+        const taskId = currentTaskId();
         if (!taskId) {
             window.alert('当前模型缺少 task_id，无法保存分割图层');
             this.events.fire('tool.deactivate');
@@ -118,6 +90,7 @@ class SegmentationTool {
         }
         this.active = true;
         this.root.classList.add('active');
+        void this.loadSavedLayers();
         void this.predictSemantic();
     };
 
@@ -162,12 +135,135 @@ class SegmentationTool {
             void this.refine3DSelection();
         } else if (action === 'separate3d') {
             void this.separate3DLayer();
+        } else if (action === 'cuboid3d') {
+            void this.replaceWithBlackCuboid();
         } else if (action === 'confirm') {
             void this.confirm();
+        } else if (action === 'merge') {
+            void this.mergeIntoSavedLayer();
+        } else if (action === 'generate-mesh') {
+            void this.generateSavedLayerMesh();
+        } else if (action === 'delete-layer') {
+            void this.deleteSavedLayer();
         } else if (action === 'cancel') {
             this.events.fire('tool.deactivate');
         }
     };
+
+    private async loadSavedLayers() {
+        const taskId = currentTaskId();
+        if (!taskId) return;
+        try {
+            const response = await fetch(`/api/tasks/${taskId}/layers`);
+            this.savedLayers = await readApiResponse(response);
+            for (const layer of this.savedLayers) {
+                if (!layer.category || !layer.instance_index) continue;
+                this.committedInstanceMax.set(
+                    layer.category,
+                    Math.max(this.committedInstanceMax.get(layer.category) ?? 0, layer.instance_index)
+                );
+            }
+            this.targetLayer.replaceChildren(
+                new Option('选择已有图层', ''),
+                ...this.savedLayers.map(layer => new Option(
+                    `${layer.name}（${layer.observation_count ?? 1} 次观测）`, layer.layer_id
+                ))
+            );
+        } catch (error) {
+            this.setStatus(error instanceof Error ? error.message : '读取已有图层失败');
+        }
+    }
+
+    private async deleteSavedLayer() {
+        const layer = this.savedLayers.find(item => item.layer_id === this.targetLayer.value);
+        if (!layer) {
+            this.setStatus('请先选择需要删除的已有图层');
+            return;
+        }
+        const taskId = currentTaskId();
+        if (!taskId) {
+            this.setStatus('当前模型缺少 task_id');
+            return;
+        }
+        this.setBusy(true, '正在检查图层引用');
+        try {
+            const impactResponse = await fetch(
+                `/api/tasks/${taskId}/layers/${layer.layer_id}/delete-impact`
+            );
+            const impact = await readApiResponse(impactResponse);
+            const snapshotText = impact.snapshot_count > 0 ?
+                `\n同时删除 ${impact.snapshot_count} 个引用该图层的场景快照。` : '';
+            const confirmed = window.confirm(
+                `确定删除语义图层“${layer.name}”吗？${snapshotText}\n` +
+                '此操作删除持久 mask、Gaussian 索引和观测记录，原始 PLY 不受影响。'
+            );
+            if (!confirmed) return;
+            const response = await fetch(
+                `/api/tasks/${taskId}/layers/${layer.layer_id}`,
+                { method: 'DELETE' }
+            );
+            const result = await readApiResponse(response);
+            await this.loadSavedLayers();
+            this.events.fire('semantic.layersChanged');
+            this.setStatus(
+                `已删除“${layer.name}”${
+                    result.snapshot_count ? `，同时删除 ${result.snapshot_count} 个快照` : ''}`
+            );
+        } catch (error) {
+            this.setStatus(error instanceof Error ? error.message : '删除图层失败');
+        } finally {
+            this.setBusy(false);
+        }
+    }
+
+    private async generateSavedLayerMesh() {
+        const layer = this.savedLayers.find(item => item.layer_id === this.targetLayer.value);
+        if (!layer) {
+            this.setStatus('请先选择需要转换的已有图层');
+            return;
+        }
+        const taskId = currentTaskId();
+        if (!taskId) {
+            this.setStatus('当前模型缺少 task_id');
+            return;
+        }
+        if (!window.confirm(
+            `将图层“${layer.name}”中的 Gaussian 转换为视觉 Mesh。` +
+            '当前结果来自虚拟深度，不可直接作为机器人安全碰撞地图。转换可能需要数分钟，是否继续？'
+        )) {
+            return;
+        }
+        this.setBusy(true, `正在生成 ${layer.name} Mesh`);
+        try {
+            const response = await fetch(`/api/tasks/${taskId}/layers/${layer.layer_id}/mesh`, {
+                method: 'POST'
+            });
+            if (!response.ok) {
+                const body = await response.json().catch((): null => null);
+                throw new Error(body?.detail ?? 'Mesh 生成失败');
+            }
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `${layer.name.replace(/[\\/:*?"<>|]/g, '_')}-mesh.ply`;
+            anchor.click();
+            URL.revokeObjectURL(url);
+            const vertices = response.headers.get('X-Mesh-Vertices') ?? '?';
+            const triangles = response.headers.get('X-Mesh-Triangles') ?? '?';
+            const collisionTriangles = response.headers.get('X-Mesh-Collision-Triangles') ?? '?';
+            const safeForCollision = response.headers.get('X-Mesh-Safe-For-Collision') === 'true';
+            this.setStatus(
+                `视觉 Mesh：${vertices} 顶点，${triangles} 三角形；` +
+                `碰撞候选：${collisionTriangles} 三角形；${
+                    safeForCollision ? '已通过碰撞安全标记' : '尚未通过碰撞安全验证'}`
+            );
+        } catch (error) {
+            this.setStatus(error instanceof Error ? error.message : 'Mesh 生成失败');
+        } finally {
+            this.setBusy(false);
+        }
+    }
 
     private onDocumentPointerDown = (event: PointerEvent) => {
         if (this.active && this.root.contains(event.target as Node)) {
@@ -201,14 +297,14 @@ class SegmentationTool {
 
     private async ensureSession() {
         if (this.sessionId) return;
-        const taskId = new URLSearchParams(location.search).get('task_id');
+        const taskId = currentTaskId();
         const view = await this.captureView();
         this.promptView = view;
         const form = new FormData();
         form.append('image', view.image, 'camera-view.png');
         form.append('metadata', JSON.stringify(view.metadata));
         const response = await fetch('/api/segmentation/sessions', { method: 'POST', body: form });
-        const body = await this.readResponse(response);
+        const body = await readApiResponse(response);
         this.sessionId = body.session_id;
         sessionStorage.setItem(`segmentation:${taskId}`, JSON.stringify({ sessionId: this.sessionId, points: this.points }));
     }
@@ -222,7 +318,7 @@ class SegmentationTool {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ points: this.points })
             });
-            const body = await this.readResponse(response);
+            const body = await readApiResponse(response);
             if (this.sessionId) {
                 this.projectedInstances.delete(this.sessionId);
             }
@@ -230,7 +326,7 @@ class SegmentationTool {
             this.overlay.src = this.promptMaskUrl;
             this.overlay.classList.add('visible');
             this.setStatus(`置信度 ${(body.score * 100).toFixed(1)}%`);
-            const taskId = new URLSearchParams(location.search).get('task_id');
+            const taskId = currentTaskId();
             sessionStorage.setItem(`segmentation:${taskId}`, JSON.stringify({ sessionId: this.sessionId, points: this.points }));
         } catch (error) {
             this.setStatus(error instanceof Error ? error.message : '分割失败');
@@ -251,7 +347,7 @@ class SegmentationTool {
         }
         this.setBusy(true, '保存图层中');
         try {
-            const taskId = new URLSearchParams(location.search).get('task_id');
+            const taskId = currentTaskId();
             const hasProjectedIndices = (this.projectedInstances.get(sessionId) ?? [])
             .some(projected => projected.indices.length > 0);
             if (!hasProjectedIndices) {
@@ -279,11 +375,14 @@ class SegmentationTool {
                     gaussian_index_sets: gaussianIndexSets
                 })
             });
-            const layer = await this.readResponse(response);
+            const layer = await readApiResponse(response);
             sessionStorage.removeItem(`segmentation:${taskId}`);
             this.sessionId = null;
+            this.events.fire('semantic.layersChanged');
             window.alert(`图层“${layer.name}”已保存`);
-            this.events.fire('tool.deactivate');
+            this.reset();
+            await this.loadSavedLayers();
+            this.setStatus(`图层“${layer.name}”已保存`);
         } catch (error) {
             this.setStatus(error instanceof Error ? error.message : '保存失败');
         } finally {
@@ -391,14 +490,15 @@ class SegmentationTool {
         if (!context) throw new Error('无法创建截图画布');
         context.putImageData(imageData, 0, 0);
         return new Promise<Blob>((resolve, reject) => {
-            canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('视角截图失败')), 'image/png');
+            canvas.toBlob(blob => (blob ? resolve(blob) : reject(new Error('视角截图失败'))), 'image/png');
         });
     }
 
     private captureSize() {
         const sourceWidth = this.scene.canvas.width;
         const sourceHeight = this.scene.canvas.height;
-        const scale = Math.min(1, 1280 / Math.max(sourceWidth, sourceHeight));
+        const longestSide = Math.max(sourceWidth, sourceHeight);
+        const scale = Math.min(1280 / longestSide, Math.max(1, 960 / longestSide));
         return {
             width: Math.max(1, Math.round(sourceWidth * scale)),
             height: Math.max(1, Math.round(sourceHeight * scale))
@@ -413,6 +513,7 @@ class SegmentationTool {
             this.projectedInstances.clear();
             const metadata = {
                 ...views[0].metadata,
+                instance_index_offsets: Object.fromEntries(this.committedInstanceMax),
                 views: views.map(view => ({
                     near: view.metadata.near,
                     far: view.metadata.far,
@@ -431,7 +532,7 @@ class SegmentationTool {
             });
             form.append('metadata', JSON.stringify(metadata));
             const response = await fetch('/api/semantic/predict', { method: 'POST', body: form });
-            const body = await this.readResponse(response);
+            const body = await readApiResponse(response);
             this.semanticResultId = body.result_id;
             this.semanticInstances = body.instances.map((item: SemanticInstance) => ({ ...item, selected: true }));
             this.renderSemanticResults();
@@ -451,14 +552,14 @@ class SegmentationTool {
         this.nameInput.value = selectedNames.length ? layerName : '分割图层';
         this.layerInfo.textContent = `图层：${layerName}`;
         const masks = this.root.querySelector('.semantic-masks');
-        masks?.replaceChildren(...this.semanticInstances.filter(item => item.selected).map(item => {
+        masks?.replaceChildren(...this.semanticInstances.filter(item => item.selected).map((item) => {
             const image = document.createElement('img');
             image.className = `segmentation-mask semantic-mask visible category-${item.category}`;
             image.src = `${item.mask_url}?v=${Date.now()}`;
             return image;
         }));
         const list = this.root.querySelector('.semantic-list');
-        list?.replaceChildren(...this.semanticInstances.map(item => {
+        list?.replaceChildren(...this.semanticInstances.map((item) => {
             const button = document.createElement('button');
             button.dataset.action = 'toggle';
             button.dataset.instance = item.instance_id;
@@ -727,7 +828,7 @@ class SegmentationTool {
 
         this.setBusy(true, '正在进行精细几何补全');
         try {
-            const taskId = new URLSearchParams(location.search).get('task_id');
+            const taskId = currentTaskId();
             if (!taskId) throw new Error('当前模型缺少 task_id');
             const geometryCache = new Map<Splat, Float32Array>();
             const sceneSplats = this.scene.getElementsByType(ElementType.splat) as Splat[];
@@ -737,8 +838,7 @@ class SegmentationTool {
             for (const instanceId of semanticIds) {
                 const category = this.semanticInstances.find(item => item.instance_id === instanceId)?.category ?? 'object';
                 for (const projected of this.projectedInstances.get(instanceId) ?? []) {
-                    const clean = (index: number) =>
-                        (projected.splat.state.data[index] & (State.locked | State.deleted)) === 0;
+                    const clean = (index: number) => (projected.splat.state.data[index] & (State.locked | State.deleted)) === 0;
                     const seeds = Array.from(projected.indices).filter(clean);
                     const candidates = Array.from(projected.expansionCandidates).filter(clean);
                     if (!seeds.length) throw new Error('当前投射已被分离或删除，无法精细补全');
@@ -777,7 +877,9 @@ class SegmentationTool {
             for (const instanceId of semanticIds) {
                 for (const projected of this.projectedInstances.get(instanceId) ?? []) {
                     const mask = combined.get(projected.splat);
-                    projected.indices.forEach(index => { mask[index] = 255; });
+                    projected.indices.forEach((index) => {
+                        mask[index] = 255;
+                    });
                 }
             }
             for (const [splat, mask] of combined) {
@@ -812,8 +914,7 @@ class SegmentationTool {
             let addedCount = 0;
             for (const instanceId of semanticIds) {
                 for (const projected of this.projectedInstances.get(instanceId) ?? []) {
-                    const clean = (index: number) =>
-                        (projected.splat.state.data[index] & (State.locked | State.deleted)) === 0;
+                    const clean = (index: number) => (projected.splat.state.data[index] & (State.locked | State.deleted)) === 0;
                     const seeds = Array.from(projected.indices).filter(clean);
                     if (!seeds.length && projected.indices.length) {
                         throw new Error('当前投射已被分离或删除，无法继续补全');
@@ -843,7 +944,7 @@ class SegmentationTool {
             for (const instanceId of semanticIds) {
                 for (const projected of this.projectedInstances.get(instanceId) ?? []) {
                     const mask = combined.get(projected.splat);
-                    projected.indices.forEach(index => {
+                    projected.indices.forEach((index) => {
                         mask[index] = 255;
                     });
                 }
@@ -876,9 +977,46 @@ class SegmentationTool {
                 'edit.separateSelection',
                 semanticName || this.nameInput.value.trim() || '分割图层'
             );
+            this.commitSelectedInstanceNumbers();
             this.setStatus('已生成独立 3D 图层，可使用撤销恢复');
         } catch (error) {
             this.setStatus(error instanceof Error ? error.message : '生成 3D 图层失败');
+        } finally {
+            this.setBusy(false);
+        }
+    }
+
+    private async replaceWithBlackCuboid() {
+        const splat = this.events.invoke('selection') as Splat;
+        if (!splat || splat.numSelected === 0 || this.projectedInstances.size === 0) {
+            this.setStatus('请先将识别结果投射到 3D');
+            return;
+        }
+        const semanticName = this.semanticInstances
+        .filter(item => item.selected)
+        .map(item => `${item.category_zh}${item.instance_index}`)
+        .join('+');
+        const confirmed = window.confirm(
+            `用黑色长方体替换“${semanticName || '所选物体'}”？原物体将隐藏，可通过撤销恢复。`
+        );
+        if (!confirmed) return;
+        this.setBusy(true, '正在生成黑色长方体');
+        try {
+            const representation = await this.events.invoke(
+                'edit.replaceSelectionWithCuboid',
+                `黑色长方体-${semanticName || '识别物体'}`
+            ) as { cuboid: Splat; original: Splat };
+            this.events.fire('semantic.cuboidCreated', {
+                splat: representation.cuboid,
+                cuboid: representation.cuboid,
+                original: representation.original,
+                name: semanticName || '识别物体'
+            });
+            this.commitSelectedInstanceNumbers();
+            this.events.fire('select.none');
+            this.setStatus('已使用黑色长方体替换识别物体，可撤销恢复');
+        } catch (error) {
+            this.setStatus(error instanceof Error ? error.message : '长方体替换失败');
         } finally {
             this.setBusy(false);
         }
@@ -894,6 +1032,78 @@ class SegmentationTool {
                 indices: Array.from(projected.indices)
             }));
         }).filter(item => item.source_index >= 0);
+    }
+
+    private commitSelectedInstanceNumbers() {
+        for (const instance of this.semanticInstances.filter(item => item.selected)) {
+            this.committedInstanceMax.set(
+                instance.category,
+                Math.max(this.committedInstanceMax.get(instance.category) ?? 0, instance.instance_index)
+            );
+        }
+    }
+
+    private async mergeIntoSavedLayer() {
+        const layer = this.savedLayers.find(item => item.layer_id === this.targetLayer.value);
+        const selectedInstances = this.semanticInstances.filter(item => item.selected);
+        if (!layer) {
+            this.setStatus('请选择需要补全的已有图层');
+            return;
+        }
+        if (!this.semanticResultId || selectedInstances.length !== 1) {
+            this.setStatus('补全时只能选择一个识别结果');
+            return;
+        }
+        const instance = selectedInstances[0];
+        if (layer.category && layer.category !== instance.category) {
+            this.setStatus(`类别不一致：${instance.category_zh}不能合并到“${layer.name}”`);
+            return;
+        }
+        this.setBusy(true, '正在计算增量补全');
+        try {
+            if (!this.projectedInstances.has(instance.instance_id)) {
+                const projectedCount = await this.projectInstancesTo3D([{
+                    instance_id: instance.instance_id,
+                    view_masks: instance.view_masks?.length ? instance.view_masks : [{ view_index: 0, mask_url: instance.mask_url }]
+                }], this.semanticViews);
+                if (!projectedCount) throw new Error('新视角没有可合并的 Gaussian');
+            }
+            const indexSets = this.buildGaussianIndexSets([instance.instance_id]);
+            const existingCounts = new Map(layer.gaussian_indices.map(item => [item.source_index, item.count]));
+            const estimatedAdded = indexSets.reduce(
+                (sum, item) => sum + Math.max(0, item.indices.length - (existingCounts.get(item.source_index) ?? 0)), 0
+            );
+            const confirmed = window.confirm(
+                `将新视角“${instance.category_zh}${instance.instance_index}”补全到“${layer.name}”？\n` +
+                `本次投射 ${indexSets.reduce((sum, item) => sum + item.indices.length, 0)} 个 Gaussian，` +
+                `预计最多新增 ${estimatedAdded} 个。确认后写入持久图层。`
+            );
+            if (!confirmed) return;
+            const taskId = currentTaskId();
+            const response = await fetch(`/api/tasks/${taskId}/layers/${layer.layer_id}/observations`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    result_id: this.semanticResultId,
+                    instance_id: instance.instance_id,
+                    gaussian_index_sets: indexSets
+                })
+            });
+            const result = await readApiResponse(response);
+            this.semanticResultId = null;
+            this.events.fire('semantic.layersChanged');
+            window.alert(
+                `“${layer.name}”补全完成：新增 ${result.added_count} 个，` +
+                `总计 ${result.total_count} 个 Gaussian，累计 ${result.observation_count} 次观测。`
+            );
+            this.reset();
+            await this.loadSavedLayers();
+            this.setStatus(`图层“${layer.name}”补全完成`);
+        } catch (error) {
+            this.setStatus(error instanceof Error ? error.message : '增量补全失败');
+        } finally {
+            this.setBusy(false);
+        }
     }
 
     private async confirmSemantic() {
@@ -931,21 +1141,18 @@ class SegmentationTool {
                     gaussian_index_sets: gaussianIndexSets
                 })
             });
-            const layers = await this.readResponse(response);
+            const layers = await readApiResponse(response);
             this.semanticResultId = null;
+            this.events.fire('semantic.layersChanged');
             window.alert(`已保存 ${layers.length} 个语义图层`);
-            this.events.fire('tool.deactivate');
+            this.reset();
+            await this.loadSavedLayers();
+            this.setStatus(`已保存 ${layers.length} 个语义图层`);
         } catch (error) {
             this.setStatus(error instanceof Error ? error.message : '保存失败');
         } finally {
             this.setBusy(false);
         }
-    }
-
-    private async readResponse(response: Response) {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.detail || `请求失败 ${response.status}`);
-        return body;
     }
 
     private async closeSession() {
@@ -955,7 +1162,7 @@ class SegmentationTool {
     }
 
     private renderMarkers() {
-        this.markers.replaceChildren(...this.points.map(point => {
+        this.markers.replaceChildren(...this.points.map((point) => {
             const marker = document.createElement('i');
             marker.className = point.label ? 'positive' : 'negative';
             marker.style.left = `${point.x * 100}%`;
@@ -990,7 +1197,7 @@ class SegmentationTool {
     private setBusy(value: boolean, message?: string) {
         this.busy = value;
         this.root.classList.toggle('busy', value);
-        this.root.querySelectorAll<HTMLButtonElement>('button').forEach(button => {
+        this.root.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
             button.disabled = value;
         });
         if (message) this.setStatus(message);

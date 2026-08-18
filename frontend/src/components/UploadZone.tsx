@@ -7,9 +7,9 @@ const IMG_EXTS = [".jpg", ".jpeg", ".png", ".bmp", ".webp"];
 const VIDEO_EXTS = [".mp4", ".avi", ".mov", ".mkv"];
 const MAX_IMG_SIZE = 100 * 1024 * 1024; // 100 MB
 const MAX_VIDEO_SIZE = 500 * 1024 * 1024; // 500 MB per video
-const MAX_FILES = 50;
+const MAX_FILES = 12;
 const MAX_VIDEOS = 10;
-const MAX_FRAMES_DEFAULT = 25;  // RTX 4050 6.4GB 安全上限
+const MAX_FRAMES_DEFAULT = 12;  // 与 ZipSplat 输入上限一致，不自动删除视图
 const DEFAULT_MODE = "scene";    // 固定场景模式
 
 type InputMode = "image" | "video";
@@ -215,7 +215,7 @@ export default function UploadZone({ onTaskCreated }: Props) {
         </p>
         <p className="text-gray-400 text-sm mt-1">
           {isImage
-            ? "支持 JPG / PNG / BMP / WebP · 最多 50 张 · 总大小 ≤ 100 MB"
+            ? "支持 JPG / PNG / BMP / WebP · 最多 12 张 · 总大小 ≤ 100 MB"
             : "支持 MP4 / AVI / MOV / MKV · 最多 10 段 · 单段 ≤ 500 MB"}
         </p>
       </div>

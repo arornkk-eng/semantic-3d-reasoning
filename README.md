@@ -48,11 +48,21 @@ venv\Scripts\python.exe -m pip install --no-build-isolation -e third_party/sam2
 ```powershell
 npm --prefix frontend ci
 npm --prefix frontend run build
+npm --prefix supersplat-editor ci
+npm --prefix supersplat-editor run deploy:local
 ```
 
-`package-lock.json` 锁定前端依赖。开发服务器通过 Vite 把 `/api` 代理到 `http://localhost:8000`。
+`package-lock.json` 锁定前端依赖。`deploy:local` 把 SuperSplat 生产包发布到 `frontend/public/splat-editor`，不携带 source map。开发服务器通过 Vite 把 `/api` 代理到 `http://localhost:8000`。
 
 ## 启动
+
+一键启动全部功能并自动打开浏览器：
+
+```powershell
+.\run_all.bat
+```
+
+也可以双击仓库根目录中的 `一键启动全部功能.bat`。
 
 双击或在终端运行：
 
@@ -72,6 +82,10 @@ npm --prefix frontend run build
 * `CUDA_HOME`：CUDA Toolkit 路径。未设置时启动脚本使用 CUDA 12.8 默认安装路径。
 * `TORCH_CUDA_ARCH_LIST`：目标 GPU 架构。未设置时启动脚本使用 `8.9`，对应 RTX 40 系列。
 * `ZIPSPLAT_CORS_ORIGINS`：逗号分隔的前端来源白名单。
+* `REALTIME_YOLO_MODEL`：实时预览检测权重，默认使用仓库根目录 `yolo26n-objv1-150.pt`（Objects365 类别集）。权重不入 Git，也可通过该环境变量指定本地路径。
+* `REALTIME_YOLO_CONFIDENCE`：实时检测置信度阈值，默认 `0.35`。
+* `REALTIME_YOLO_IMAGE_SIZE`：YOLO 推理尺寸，默认 `640`。
+* `REALTIME_YOLO_MAX_DETECTIONS`：每帧最大框数，默认 `15`。
 
 ## 数据目录
 
@@ -89,8 +103,10 @@ npm --prefix frontend run build
 
 ```powershell
 venv\Scripts\python.exe -m pytest backend/tests
-venv\Scripts\python.exe -m ruff check backend
+venv\Scripts\python.exe -m ruff check backend tools
 npm --prefix frontend run build
+npm --prefix supersplat-editor run lint
+npm --prefix supersplat-editor run deploy:local
 ```
 
 ## 主要流程
@@ -101,11 +117,15 @@ npm --prefix frontend run build
 
 ## 编辑器语义分割
 
-当前固定识别杯子、椅子、瓶子。编辑器从当前焦点捕获 `0°、-6°、+6°` 三个轨道视角及深度图，融合逐视角实例 mask 后可执行：
+相机移动时，编辑器以 `640×360` 低分辨率截图调用 Objects365 YOLO26n，仅显示实时预览框。左上角“YOLO实时检测”按钮可关闭该功能，设置保存在浏览器本地。相机停止后不自动启动高成本模型；用户点击“分割”时，YOLO 暂停并清框，再由 Grounding DINO 与 SAM 2.1 执行正式实例分割。最终语义图层不使用 YOLO 结果。
+
+正式分割支持 32 类常见室内物体。每次按置信度最多保留 7 个识别实例，可通过 `MAX_SEMANTIC_INSTANCES` 环境变量调整。编辑器从当前焦点捕获中心及两个辅助轨道视角的 RGB、深度和覆盖率，融合逐视角实例 mask 后可执行：
 
 1. `投射到3D`：按相机矩阵、深度和透明度选择可见 Gaussian。
 2. `补全3D`：在 mask 证据和局部 Gaussian 邻接约束内补全破损或遮挡部分。
 3. `生成独立3D图层`：从原 Splat 分离选区，支持撤销和重做。
 4. `保存所选图层`：保存 2D mask、相机信息和 `uint32-le` Gaussian 索引 sidecar。
+5. `补全已有图层`：把新视角投射得到的新增 Gaussian 合并到用户指定的已有图层。
+6. `删除已有图层`：确认影响后删除当前会话的 mask、索引和观测记录，原始 PLY 不受影响。
 
-浏览器仅缓存编辑状态。持久图层位于 `data/layers/{task_id}/{layer_id}`。
+浏览器仅缓存未提交编辑状态。当前会话图层暂存于 `data/layers/{task_id}/{layer_id}`；打开编辑器时清理上次残留，页面关闭或刷新时再清理。

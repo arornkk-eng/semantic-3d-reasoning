@@ -4,7 +4,7 @@
 新增端点时，请在此登记其 response_model 类型名。
 """
 
-from backend.api import ply_viewer, segmentation, upload
+from backend.api import ply_viewer, realtime_detection, segmentation, upload
 
 EXPECTED = [
     (upload.router, "/upload", "UploadResponse"),
@@ -23,6 +23,7 @@ EXPECTED = [
         "SegmentationPredictResponse",
     ),
     (segmentation.router, "/tasks/{task_id}/layers", "SegmentationLayerResponse"),
+    (realtime_detection.router, "/realtime/detect", "RealtimeDetectionResponse"),
 ]
 
 
