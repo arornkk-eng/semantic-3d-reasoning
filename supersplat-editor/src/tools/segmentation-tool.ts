@@ -18,6 +18,15 @@ import type {
 } from './segmentation-types';
 import { expandSemanticGaussianSeeds } from './semantic-gaussian-expansion';
 
+type GroundCalibration = {
+    ground_layer_id: string | null;
+    normal: [number, number, number];
+    inlier_ratio: number;
+    fit_error: number;
+    flipped: boolean;
+    confirmed: boolean;
+};
+
 class SegmentationTool {
     private events: Events;
     private scene: Scene;
@@ -66,7 +75,11 @@ class SegmentationTool {
                 <button data-action="confirm" class="primary">保存所选图层</button>
                 <select data-role="target-layer"><option value="">选择已有图层</option></select>
                 <button data-action="merge" class="primary">补全已有图层</button>
-                <button data-action="generate-mesh">生成 Mesh</button>
+                <button data-action="generate-physics-proxy">生成物理代理</button>
+                <button data-action="set-ground">设为地面</button>
+                <button data-action="flip-ground-normal">翻转地面法线</button>
+                <button data-action="confirm-ground">确认地面法线</button>
+                <button data-action="analyze-support">分析支撑关系</button>
                 <button data-action="delete-layer">删除已有图层</button>
                 <button data-action="cancel">取消</button>
                 <span data-role="status">正在识别杯子、椅子、瓶子</span>
@@ -91,6 +104,7 @@ class SegmentationTool {
         this.active = true;
         this.root.classList.add('active');
         void this.loadSavedLayers();
+        void this.loadGroundCalibration();
         void this.predictSemantic();
     };
 
@@ -141,8 +155,16 @@ class SegmentationTool {
             void this.confirm();
         } else if (action === 'merge') {
             void this.mergeIntoSavedLayer();
-        } else if (action === 'generate-mesh') {
-            void this.generateSavedLayerMesh();
+        } else if (action === 'generate-physics-proxy') {
+            void this.generateSavedLayerPhysicsProxy();
+        } else if (action === 'set-ground') {
+            void this.setSelectedLayerAsGround();
+        } else if (action === 'flip-ground-normal') {
+            void this.flipGroundNormal();
+        } else if (action === 'confirm-ground') {
+            void this.confirmGroundNormal();
+        } else if (action === 'analyze-support') {
+            void this.analyzeSupportRelations();
         } else if (action === 'delete-layer') {
             void this.deleteSavedLayer();
         } else if (action === 'cancel') {
@@ -216,10 +238,10 @@ class SegmentationTool {
         }
     }
 
-    private async generateSavedLayerMesh() {
+    private async generateSavedLayerPhysicsProxy() {
         const layer = this.savedLayers.find(item => item.layer_id === this.targetLayer.value);
         if (!layer) {
-            this.setStatus('请先选择需要转换的已有图层');
+            this.setStatus('请先选择需要生成物理代理的已有图层');
             return;
         }
         const taskId = currentTaskId();
@@ -228,38 +250,165 @@ class SegmentationTool {
             return;
         }
         if (!window.confirm(
-            `将图层“${layer.name}”中的 Gaussian 转换为视觉 Mesh。` +
-            '当前结果来自虚拟深度，不可直接作为机器人安全碰撞地图。转换可能需要数分钟，是否继续？'
+            `将图层“${layer.name}”直接转换为闭合物理代理。` +
+            '代理类型将根据语义自动选择，是否继续？'
         )) {
             return;
         }
-        this.setBusy(true, `正在生成 ${layer.name} Mesh`);
+        this.setBusy(true, `正在生成 ${layer.name} 物理代理`);
         try {
-            const response = await fetch(`/api/tasks/${taskId}/layers/${layer.layer_id}/mesh`, {
-                method: 'POST'
+            const response = await fetch(`/api/tasks/${taskId}/layers/${layer.layer_id}/physics-proxy`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ proxy_type: 'auto', up_axis: [0, 1, 0] })
             });
             if (!response.ok) {
                 const body = await response.json().catch((): null => null);
-                throw new Error(body?.detail ?? 'Mesh 生成失败');
+                throw new Error(body?.detail ?? '物理代理生成失败');
             }
             const blob = await response.blob();
             const url = URL.createObjectURL(blob);
             const anchor = document.createElement('a');
             anchor.href = url;
-            anchor.download = `${layer.name.replace(/[\\/:*?"<>|]/g, '_')}-mesh.ply`;
+            anchor.download = `${layer.name.replace(/[\\/:*?"<>|]/g, '_')}-physics-proxy.ply`;
             anchor.click();
             URL.revokeObjectURL(url);
-            const vertices = response.headers.get('X-Mesh-Vertices') ?? '?';
-            const triangles = response.headers.get('X-Mesh-Triangles') ?? '?';
-            const collisionTriangles = response.headers.get('X-Mesh-Collision-Triangles') ?? '?';
-            const safeForCollision = response.headers.get('X-Mesh-Safe-For-Collision') === 'true';
+            const proxyType = response.headers.get('X-Physics-Proxy-Type') ?? '?';
+            const vertices = response.headers.get('X-Physics-Proxy-Vertices') ?? '?';
+            const triangles = response.headers.get('X-Physics-Proxy-Triangles') ?? '?';
+            const watertight = response.headers.get('X-Physics-Proxy-Watertight') === 'true';
+            const physicsReady = response.headers.get('X-Physics-Ready') === 'true';
             this.setStatus(
-                `视觉 Mesh：${vertices} 顶点，${triangles} 三角形；` +
-                `碰撞候选：${collisionTriangles} 三角形；${
-                    safeForCollision ? '已通过碰撞安全标记' : '尚未通过碰撞安全验证'}`
+                `物理代理 ${proxyType}：${vertices} 顶点，${triangles} 三角形；` +
+                `${watertight ? '已闭合' : '未闭合'}；${physicsReady ? '可用于物理分析' : '未通过物理检查'}`
             );
         } catch (error) {
-            this.setStatus(error instanceof Error ? error.message : 'Mesh 生成失败');
+            this.setStatus(error instanceof Error ? error.message : '物理代理生成失败');
+        } finally {
+            this.setBusy(false);
+        }
+    }
+
+    private async analyzeSupportRelations() {
+        const taskId = currentTaskId();
+        if (!taskId) {
+            this.setStatus('当前模型缺少 task_id');
+            return;
+        }
+        if (this.savedLayers.length < 2) {
+            this.setStatus('至少需要保存两个语义图层');
+            return;
+        }
+        this.setBusy(true, '正在生成物理代理并分析支撑关系');
+        try {
+            const response = await fetch(`/api/tasks/${taskId}/physics/support-analysis`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+            const result = await readApiResponse<{
+                relations: Array<{ subject: string; object: string; confidence: number }>;
+            }>(response);
+            if (result.relations.length === 0) {
+                this.setStatus('物理分析完成，未发现稳定支撑关系');
+                return;
+            }
+            const names = new Map(this.savedLayers.map(layer => [layer.layer_id, layer.name]));
+            const summary = result.relations.map(relation => (
+                `${names.get(relation.subject) ?? relation.subject} 由 ` +
+                `${names.get(relation.object) ?? relation.object} 支撑 ` +
+                `(${Math.round(relation.confidence * 100)}%)`
+            )).join('；');
+            this.setStatus(`物理分析完成：${summary}`);
+        } catch (error) {
+            this.setStatus(error instanceof Error ? error.message : '支撑关系分析失败');
+        } finally {
+            this.setBusy(false);
+        }
+    }
+
+    private groundCalibrationStatus(calibration: GroundCalibration) {
+        const normal = calibration.normal.map(value => value.toFixed(3)).join(', ');
+        const ratio = Math.round(calibration.inlier_ratio * 100);
+        const state = calibration.confirmed ? '已确认' : '待确认';
+        return `地面法线 [${normal}]，内点率 ${ratio}%，拟合误差 ` +
+            `${calibration.fit_error.toFixed(5)}，${state}`;
+    }
+
+    private async loadGroundCalibration() {
+        const taskId = currentTaskId();
+        if (!taskId) return;
+        try {
+            const response = await fetch(`/api/tasks/${taskId}/physics/ground-calibration`);
+            if (response.status === 404) return;
+            const calibration = await readApiResponse<GroundCalibration>(response);
+            this.setStatus(this.groundCalibrationStatus(calibration));
+        } catch (error) {
+            this.setStatus(error instanceof Error ? error.message : '读取地面标定失败');
+        }
+    }
+
+    private async setSelectedLayerAsGround() {
+        const layer = this.savedLayers.find(item => item.layer_id === this.targetLayer.value);
+        if (!layer) {
+            this.setStatus('请先选择地面图层');
+            return;
+        }
+        const taskId = currentTaskId();
+        if (!taskId) {
+            this.setStatus('当前模型缺少 task_id');
+            return;
+        }
+        this.setBusy(true, `正在拟合地面图层 ${layer.name}`);
+        try {
+            const response = await fetch(`/api/tasks/${taskId}/physics/ground-calibration`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    method: 'layer_ransac',
+                    ground_layer_id: layer.layer_id
+                })
+            });
+            const calibration = await readApiResponse<GroundCalibration>(response);
+            this.setStatus(this.groundCalibrationStatus(calibration));
+        } catch (error) {
+            this.setStatus(error instanceof Error ? error.message : '地面拟合失败');
+        } finally {
+            this.setBusy(false);
+        }
+    }
+
+    private async flipGroundNormal() {
+        const taskId = currentTaskId();
+        if (!taskId) return;
+        this.setBusy(true, '正在翻转地面法线');
+        try {
+            const response = await fetch(
+                `/api/tasks/${taskId}/physics/ground-calibration/flip`,
+                { method: 'POST' }
+            );
+            const calibration = await readApiResponse<GroundCalibration>(response);
+            this.setStatus(this.groundCalibrationStatus(calibration));
+        } catch (error) {
+            this.setStatus(error instanceof Error ? error.message : '地面法线翻转失败');
+        } finally {
+            this.setBusy(false);
+        }
+    }
+
+    private async confirmGroundNormal() {
+        const taskId = currentTaskId();
+        if (!taskId) return;
+        this.setBusy(true, '正在确认地面法线');
+        try {
+            const response = await fetch(
+                `/api/tasks/${taskId}/physics/ground-calibration/confirm`,
+                { method: 'POST' }
+            );
+            const calibration = await readApiResponse<GroundCalibration>(response);
+            this.setStatus(this.groundCalibrationStatus(calibration));
+        } catch (error) {
+            this.setStatus(error instanceof Error ? error.message : '地面法线确认失败');
         } finally {
             this.setBusy(false);
         }

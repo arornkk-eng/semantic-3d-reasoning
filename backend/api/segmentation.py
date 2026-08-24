@@ -13,10 +13,13 @@ from backend.core.config import SEGMENTATION_SESSION_TTL_SECONDS
 from backend.core.schemas import (
     GeometricRefineMetadata,
     GeometricRefineResponse,
+    GroundCalibrationRequest,
+    GroundCalibrationResponse,
     LayerCreateRequest,
     LayerMergeRequest,
     LayerMergeResponse,
     LayerRenameRequest,
+    PhysicsProxyRequest,
     SceneSnapshotCreateRequest,
     SceneSnapshotRenameRequest,
     SceneSnapshotResponse,
@@ -29,9 +32,19 @@ from backend.core.schemas import (
     SemanticInstanceResponse,
     SemanticPredictResponse,
     SemanticViewMaskResponse,
+    SupportAnalysisRequest,
+    SupportAnalysisResponse,
 )
+from backend.physics.ground_calibration import (
+    GroundCalibrationError,
+    calibrate_from_layer,
+    calibrate_from_points,
+    confirm_ground_calibration,
+    flip_ground_normal,
+)
+from backend.physics.support_analysis import SupportAnalysisError, analyze_support_relations
 from backend.segmentation.geometric_refinement import refine_gaussian_selection
-from backend.segmentation.mesh_generation import LayerMeshError, generate_layer_mesh
+from backend.segmentation.physics_proxy import PhysicsProxyError, generate_physics_proxy
 from backend.segmentation.semantic_service import semantic_service
 from backend.segmentation.service import (
     SegmentationBusyError,
@@ -39,6 +52,10 @@ from backend.segmentation.service import (
     segmentation_service,
 )
 from backend.storage.file_manager import get_task_meta
+from backend.storage.ground_calibration_store import (
+    delete_ground_calibration,
+    get_ground_calibration,
+)
 from backend.storage.layer_store import (
     create_layer,
     delete_layer,
@@ -50,6 +67,7 @@ from backend.storage.layer_store import (
     merge_layer_observation,
     rename_layer,
 )
+from backend.storage.physics_relation_store import get_support_analysis
 from backend.storage.scene_snapshot_store import (
     create_snapshot,
     delete_snapshot,
@@ -433,8 +451,11 @@ async def get_layer_delete_impact(task_id: str, layer_id: str):
 @router.delete("/tasks/{task_id}/layers/{layer_id}")
 async def remove_segmentation_layer(task_id: str, layer_id: str):
     try:
+        calibration = get_ground_calibration(task_id)
         snapshot_count = delete_snapshots_using_layer(task_id, layer_id)
         delete_layer(task_id, layer_id)
+        if calibration and calibration.get("ground_layer_id") == layer_id:
+            delete_ground_calibration(task_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="语义图层不存在") from exc
     return {"deleted": True, "layer_count": 1, "snapshot_count": snapshot_count}
@@ -448,6 +469,7 @@ async def cleanup_segmentation_layers(task_id: str):
         layer_id = layer["layer_id"]
         snapshot_count += delete_snapshots_using_layer(task_id, layer_id)
         delete_layer(task_id, layer_id)
+    delete_ground_calibration(task_id)
     return {
         "deleted": True,
         "layer_count": len(layers),
@@ -512,29 +534,122 @@ async def get_layer_gaussian_indices(task_id: str, layer_id: str, source_index: 
     return FileResponse(path, media_type="application/octet-stream", filename=path.name)
 
 
-@router.post("/tasks/{task_id}/layers/{layer_id}/mesh")
-async def create_layer_mesh(task_id: str, layer_id: str):
+@router.post("/tasks/{task_id}/layers/{layer_id}/physics-proxy")
+async def create_layer_physics_proxy(
+    task_id: str, layer_id: str, request: PhysicsProxyRequest
+):
     if get_layer_metadata(task_id, layer_id) is None:
         raise HTTPException(status_code=404, detail="语义图层不存在")
     try:
-        path, report = await run_in_threadpool(generate_layer_mesh, task_id, layer_id)
+        path, report = await run_in_threadpool(
+            generate_physics_proxy,
+            task_id,
+            layer_id,
+            request.proxy_type,
+            request.up_axis,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="语义图层不存在") from exc
-    except LayerMeshError as exc:
+    except PhysicsProxyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     headers = {
-        "X-Mesh-Vertices": str(report.get("vertices", 0)),
-        "X-Mesh-Triangles": str(report.get("triangles", 0)),
-        "X-Mesh-Collision-Triangles": str(report.get("collision_triangles", 0)),
-        "X-Mesh-Safe-For-Collision": str(bool(report.get("safe_for_collision", False))).lower(),
+        "X-Physics-Proxy-Type": str(report.get("proxy_type", "")),
+        "X-Physics-Proxy-Vertices": str(report.get("vertices", 0)),
+        "X-Physics-Proxy-Triangles": str(report.get("triangles", 0)),
+        "X-Physics-Proxy-Watertight": str(bool(report.get("watertight", False))).lower(),
+        "X-Physics-Ready": str(bool(report.get("physics_ready", False))).lower(),
         "Access-Control-Expose-Headers": (
-            "X-Mesh-Vertices, X-Mesh-Triangles, X-Mesh-Collision-Triangles, "
-            "X-Mesh-Safe-For-Collision"
+            "X-Physics-Proxy-Type, X-Physics-Proxy-Vertices, "
+            "X-Physics-Proxy-Triangles, X-Physics-Proxy-Watertight, X-Physics-Ready"
         ),
     }
     return FileResponse(
         path,
         media_type="application/octet-stream",
-        filename=f"{layer_id}-visual-mesh.ply",
+        filename=f"{layer_id}-physics-proxy.ply",
         headers=headers,
     )
+
+
+@router.post(
+    "/tasks/{task_id}/physics/support-analysis",
+    response_model=SupportAnalysisResponse,
+)
+async def create_support_analysis(task_id: str, request: SupportAnalysisRequest):
+    if get_task_meta(task_id) is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    try:
+        return await run_in_threadpool(
+            analyze_support_relations,
+            task_id,
+            request.subject_layer_ids,
+            request.supporter_layer_ids,
+        )
+    except SupportAnalysisError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/tasks/{task_id}/physics/support-analysis",
+    response_model=SupportAnalysisResponse,
+)
+async def get_latest_support_analysis(task_id: str):
+    result = get_support_analysis(task_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="尚未生成支撑关系分析")
+    return result
+
+
+@router.post(
+    "/tasks/{task_id}/physics/ground-calibration",
+    response_model=GroundCalibrationResponse,
+)
+async def create_ground_calibration(task_id: str, request: GroundCalibrationRequest):
+    if get_task_meta(task_id) is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    try:
+        if request.method == "layer_ransac":
+            return await run_in_threadpool(
+                calibrate_from_layer, task_id, request.ground_layer_id
+            )
+        return await run_in_threadpool(calibrate_from_points, task_id, request.points)
+    except GroundCalibrationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get(
+    "/tasks/{task_id}/physics/ground-calibration",
+    response_model=GroundCalibrationResponse,
+)
+async def get_current_ground_calibration(task_id: str):
+    calibration = get_ground_calibration(task_id)
+    if calibration is None:
+        raise HTTPException(status_code=404, detail="尚未创建地面标定")
+    return calibration
+
+
+@router.post(
+    "/tasks/{task_id}/physics/ground-calibration/flip",
+    response_model=GroundCalibrationResponse,
+)
+async def flip_current_ground_normal(task_id: str):
+    try:
+        return flip_ground_normal(task_id)
+    except GroundCalibrationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post(
+    "/tasks/{task_id}/physics/ground-calibration/confirm",
+    response_model=GroundCalibrationResponse,
+)
+async def confirm_current_ground(task_id: str):
+    try:
+        return confirm_ground_calibration(task_id)
+    except GroundCalibrationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.delete("/tasks/{task_id}/physics/ground-calibration")
+async def remove_ground_calibration(task_id: str):
+    return {"deleted": delete_ground_calibration(task_id)}

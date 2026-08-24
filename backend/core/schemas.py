@@ -281,6 +281,132 @@ class LayerRenameRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 
 
+class PhysicsProxyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proxy_type: Literal[
+        "auto", "obb", "cylinder", "convex_hull", "support_plane"
+    ] = "auto"
+    up_axis: list[float] = Field(default_factory=lambda: [0.0, 1.0, 0.0], min_length=3, max_length=3)
+
+    @model_validator(mode="after")
+    def validate_up_axis(self):
+        length_squared = sum(value * value for value in self.up_axis)
+        if not 0.5 <= length_squared <= 1.5:
+            raise ValueError("up_axis 必须是单位方向向量")
+        return self
+
+
+class SupportAnalysisRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    subject_layer_ids: list[str] = Field(default_factory=list, max_length=50)
+    supporter_layer_ids: list[str] = Field(default_factory=list, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_analysis(self):
+        for values in (self.subject_layer_ids, self.supporter_layer_ids):
+            if len(values) != len(set(values)):
+                raise ValueError("物理分析图层 ID 不能重复")
+            if any(not value.isalnum() or len(value) > 32 for value in values):
+                raise ValueError("物理分析图层 ID 无效")
+        return self
+
+
+class GroundCalibrationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["layer_ransac", "three_points"]
+    ground_layer_id: str | None = None
+    points: list[list[float]] = Field(default_factory=list, max_length=3)
+
+    @model_validator(mode="after")
+    def validate_ground_input(self):
+        if self.method == "layer_ransac":
+            if (
+                self.ground_layer_id is None
+                or not self.ground_layer_id.isalnum()
+                or len(self.ground_layer_id) > 32
+            ):
+                raise ValueError("layer_ransac 需要有效 ground_layer_id")
+            if self.points:
+                raise ValueError("layer_ransac 不接受 points")
+        else:
+            if self.ground_layer_id is not None:
+                raise ValueError("three_points 不接受 ground_layer_id")
+            if len(self.points) != 3 or any(len(point) != 3 for point in self.points):
+                raise ValueError("three_points 必须包含三个三维点")
+        return self
+
+
+class GroundCalibrationResponse(BaseModel):
+    task_id: str
+    method: Literal["layer_ransac", "three_points"]
+    ground_layer_id: str | None
+    origin: list[float] = Field(min_length=3, max_length=3)
+    normal: list[float] = Field(min_length=3, max_length=3)
+    flipped: bool
+    inlier_ratio: float = Field(ge=0, le=1)
+    fit_error: float = Field(ge=0)
+    boundary: dict | None
+    points: list[list[float]]
+    confirmed: bool
+    world_up: list[float] = Field(min_length=3, max_length=3)
+    gravity: list[float] = Field(min_length=3, max_length=3)
+    world_from_scene: list[list[float]]
+    updated_at: str
+    confirmed_at: str | None = None
+
+
+class SupportEvidence(BaseModel):
+    contact_ratio: float = Field(ge=0, le=1)
+    upward_contact_ratio: float = Field(ge=0, le=1)
+    mean_upward_force: float = Field(ge=0)
+    weight: float = Field(gt=0)
+    upward_force_ratio: float = Field(ge=0)
+    stable: bool
+    fall_distance_after_removal: float = Field(ge=0)
+    fall_threshold: float = Field(gt=0)
+
+
+class PhysicalSupportRelation(BaseModel):
+    subject: str
+    predicate: Literal["supported_by"]
+    object: str
+    confidence: float = Field(ge=0, le=1)
+    evidence: SupportEvidence
+
+
+class PhysicalObject(BaseModel):
+    layer_id: str
+    name: str
+    category: str
+    proxy_type: str
+    physics_ready: bool
+
+
+class SubjectPhysicalState(BaseModel):
+    layer_id: str
+    stable: bool
+    initial_position: list[float]
+    settled_position: list[float]
+    settled_orientation: list[float]
+    mean_linear_speed: float = Field(ge=0)
+    mean_angular_speed: float = Field(ge=0)
+    recent_displacement: float = Field(ge=0)
+
+
+class SupportAnalysisResponse(BaseModel):
+    task_id: str
+    engine: str
+    generated_at: str
+    gravity: dict
+    normalization: dict
+    objects: list[PhysicalObject]
+    subject_states: list[SubjectPhysicalState]
+    relations: list[PhysicalSupportRelation]
+
+
 class SceneSnapshotCamera(BaseModel):
     model_config = ConfigDict(extra="forbid")
     view_matrix: list[float] = Field(min_length=16, max_length=16)

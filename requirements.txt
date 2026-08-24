@@ -11,6 +11,7 @@ scikit-learn>=1.6,<2
 opencv-python-headless>=4.10,<6
 plyfile>=1.1,<2
 pycolmap==4.1.1
+pybullet==3.2.7
 
 # Bundled ZipSplat inference package and its declared dependencies
 -e ./ZipSplat-main

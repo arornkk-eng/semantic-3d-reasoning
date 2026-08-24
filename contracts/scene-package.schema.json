@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scene-package.schema.json",
+  "title": "Semantic 3D scene package",
+  "type": "object",
+  "required": ["schema_version", "scene_id", "source", "coordinate_system", "objects"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "scene_id": { "type": "string", "minLength": 1 },
+    "source": {
+      "type": "object",
+      "required": ["scene_ply", "sha256"],
+      "properties": {
+        "scene_ply": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "coordinate_system": {
+      "type": "object",
+      "required": ["frame_id", "unit", "up_axis", "handedness"],
+      "properties": {
+        "frame_id": { "type": "string", "minLength": 1 },
+        "unit": { "enum": ["meter", "normalized"] },
+        "up_axis": { "$ref": "#/$defs/vector3" },
+        "handedness": { "enum": ["right", "left"] }
+      },
+      "additionalProperties": false
+    },
+    "regions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/region" },
+      "default": []
+    },
+    "objects": {
+      "type": "array",
+      "items": { "$ref": "object.schema.json" }
+    }
+  },
+  "$defs": {
+    "vector3": {
+      "type": "array",
+      "prefixItems": [{ "type": "number" }, { "type": "number" }, { "type": "number" }],
+      "items": false
+    },
+    "region": {
+      "type": "object",
+      "required": ["region_id", "category"],
+      "properties": {
+        "region_id": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

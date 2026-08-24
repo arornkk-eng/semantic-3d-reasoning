@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scene-graph.schema.json",
+  "title": "Reasoned scene graph",
+  "type": "object",
+  "required": ["schema_version", "scene_id", "nodes", "relations", "hypotheses", "diagnostics"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "scene_id": { "type": "string", "minLength": 1 },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["node_id", "node_type", "category", "confidence"],
+        "properties": {
+          "node_id": { "type": "string", "minLength": 1 },
+          "node_type": { "enum": ["scene", "room", "region", "object", "opening", "functional_area"] },
+          "category": { "type": "string", "minLength": 1 },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "state": { "enum": ["observed", "inferred", "expected", "contradicted", "unknown"] }
+        },
+        "additionalProperties": true
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["subject", "predicate", "object", "confidence", "source", "evidence"],
+        "properties": {
+          "subject": { "type": "string", "minLength": 1 },
+          "predicate": { "type": "string", "minLength": 1 },
+          "object": { "type": "string", "minLength": 1 },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "source": { "enum": ["annotated", "geometry", "physics", "semantic_prior", "fused"] },
+          "evidence": { "type": "object" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "hypotheses": { "type": "array", "items": { "type": "object" } },
+    "diagnostics": { "type": "array", "items": { "type": "object" } }
+  },
+  "additionalProperties": false
+}
