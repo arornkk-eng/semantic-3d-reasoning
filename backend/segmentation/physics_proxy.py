@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
+from PIL import Image
 from plyfile import PlyData, PlyElement
 from scipy.spatial import ConvexHull, QhullError
 
+from backend.segmentation.object_cleaning import ObjectCleaningError, clean_object_gaussians
 from backend.storage.file_manager import get_output_path
 from backend.storage.layer_store import get_layer_metadata
 
@@ -109,11 +111,52 @@ def _load_gaussians(source: Path, indices_path: Path) -> tuple[np.ndarray, np.nd
     if len(positions) < 20:
         raise PhysicsProxyError("有效 Gaussian 少于 20 个")
 
-    lower, upper = np.percentile(positions, [1.0, 99.0], axis=0)
-    central = np.all((positions >= lower) & (positions <= upper), axis=1)
-    if central.sum() >= max(20, len(positions) // 2):
-        positions, scales, rotations = positions[central], scales[central], rotations[central]
     return positions, scales, rotations
+
+
+def _observation_anchor(layer: dict, directory: Path) -> np.ndarray | None:
+    width = int(layer.get("image_width") or 0)
+    height = int(layer.get("image_height") or 0)
+    near, far = layer.get("near"), layer.get("far")
+    if width <= 0 or height <= 0 or near is None or far is None:
+        return None
+    depth_path, mask_path = directory / "depth.f32", directory / "mask.png"
+    if not depth_path.is_file() or not mask_path.is_file():
+        return None
+    depth = np.fromfile(depth_path, dtype="<f4")
+    if len(depth) != width * height:
+        return None
+    depth = depth.reshape((height, width))
+    mask = np.asarray(Image.open(mask_path).convert("L")) > 127
+    if mask.shape != depth.shape:
+        return None
+    valid = mask & np.isfinite(depth) & (depth >= 0.0) & (depth <= 1.0)
+    ys, xs = np.nonzero(valid)
+    if len(xs) < 20:
+        return None
+    if len(xs) > 4096:
+        chosen = np.linspace(0, len(xs) - 1, 4096, dtype=np.int64)
+        xs, ys = xs[chosen], ys[chosen]
+    linear_depth = float(near) + depth[ys, xs] * (float(far) - float(near))
+    projection = np.asarray(layer.get("camera_projection_matrix"), dtype=np.float64).reshape(
+        4, 4, order="F"
+    )
+    nx = 2 * (xs + 0.5) / width - 1
+    ny = 1 - 2 * (ys + 0.5) / height
+    if layer.get("projection") == "orthographic":
+        camera_x = (nx - projection[0, 3]) / projection[0, 0]
+        camera_y = (ny - projection[1, 3]) / projection[1, 1]
+    else:
+        camera_x = nx * linear_depth / projection[0, 0]
+        camera_y = ny * linear_depth / projection[1, 1]
+    camera = np.stack([camera_x, camera_y, -linear_depth, np.ones_like(linear_depth)])
+    view = np.asarray(layer.get("camera_view_matrix"), dtype=np.float64).reshape(
+        4, 4, order="F"
+    )
+    world = np.linalg.inv(view) @ camera
+    points = (world[:3] / world[3]).T
+    points = points[np.isfinite(points).all(axis=1)]
+    return np.median(points, axis=0) if len(points) >= 20 else None
 
 
 def _surface_points(
@@ -179,16 +222,18 @@ def _build_obb(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, dict]:
     }
 
 
-def _build_cylinder(points: np.ndarray, sections: int = 32) -> tuple[np.ndarray, np.ndarray, dict]:
-    origin, frame = _pca_frame(points)
-    axis = frame[:, 0]
+def _build_cylinder(
+    points: np.ndarray, up: np.ndarray, sections: int = 32
+) -> tuple[np.ndarray, np.ndarray, dict]:
+    axis = _normalize(up)
+    origin = np.median(points, axis=0)
     axial = (points - origin) @ axis
-    low, high = float(axial.min()), float(axial.max())
+    low, high = np.percentile(axial, [1.0, 99.0]).tolist()
     center = origin + axis * ((low + high) * 0.5)
     radial = points - center - np.outer((points - center) @ axis, axis)
-    radius = max(float(np.linalg.norm(radial, axis=1).max()), 1e-7)
+    radius = max(float(np.percentile(np.linalg.norm(radial, axis=1), 99.0)), 1e-7)
     height = max(float(high - low), 1e-7)
-    basis_a, basis_b = frame[:, 1], frame[:, 2]
+    basis_a, basis_b = _plane_basis(axis)
     angles = np.linspace(0.0, 2.0 * np.pi, sections, endpoint=False)
     ring = np.array([math.cos(a) * basis_a + math.sin(a) * basis_b for a in angles]) * radius
     bottom_center = center - axis * height * 0.5
@@ -350,6 +395,16 @@ def generate_physics_proxy(
         raise PhysicsProxyError("图层 Gaussian 索引不存在")
 
     positions, scales, rotations = _load_gaussians(source, indices_path)
+    try:
+        cleaned = clean_object_gaussians(
+            positions,
+            scales,
+            rotations,
+            observation_anchor=_observation_anchor(layer, directory),
+        )
+    except ObjectCleaningError as exc:
+        raise PhysicsProxyError(f"三维主体清理失败：{exc}") from exc
+    positions, scales, rotations = cleaned.positions, cleaned.scales, cleaned.rotations
     category = str(layer.get("category") or "")
     resolved = _resolve_proxy_type(proxy_type, category)
     maximum = _MAX_HULL_GAUSSIANS if resolved == "convex_hull" else _MAX_FIT_GAUSSIANS
@@ -359,7 +414,9 @@ def generate_physics_proxy(
     if resolved == "obb":
         vertices, faces, geometry = _build_obb(fit_points)
     elif resolved == "cylinder":
-        vertices, faces, geometry = _build_cylinder(fit_points)
+        vertices, faces, geometry = _build_cylinder(
+            fit_points, _normalize(np.asarray(up_axis, dtype=np.float64))
+        )
     elif resolved == "convex_hull":
         vertices, faces, geometry = _build_convex_hull(fit_points)
     elif resolved == "support_plane":
@@ -379,8 +436,9 @@ def generate_physics_proxy(
         "requested_proxy_type": proxy_type,
         "category": category,
         "geometry_source": "gaussian-centers-scales-rotations",
-        "source_gaussians": len(positions),
+        "source_gaussians": cleaned.report["source_count"],
         "used_gaussians": len(centers),
+        "object_cleaning": cleaned.report,
         "vertices": len(vertices),
         "triangles": len(faces),
         "watertight": watertight,

@@ -40,7 +40,9 @@ def test_obb_cylinder_and_convex_hull_are_closed():
     angles = rng.uniform(0, 2 * np.pi, 800)
     radii = np.sqrt(rng.uniform(0, 1, 800)) * 0.25
     cylinder = np.column_stack([rng.uniform(-1, 1, 800), np.cos(angles) * radii, np.sin(angles) * radii])
-    vertices, faces, geometry = physics_proxy._build_cylinder(cylinder)
+    vertices, faces, geometry = physics_proxy._build_cylinder(
+        cylinder, np.array([1.0, 0.0, 0.0])
+    )
     _assert_closed(vertices, faces)
     assert geometry["height"] > geometry["radius"]
 
@@ -91,6 +93,7 @@ def test_generate_physics_proxy_writes_proxy_and_report(tmp_path, monkeypatch):
     assert report["proxy_type"] == "cylinder"
     assert report["watertight"] is True
     assert report["physics_ready"] is True
+    assert report["object_cleaning"]["retained_count"] >= 20
     saved = json.loads((directory / "physics-proxy-report.json").read_text(encoding="utf-8"))
     assert saved == report
     mesh = PlyData.read(str(output))
